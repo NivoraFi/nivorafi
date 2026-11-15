@@ -26,6 +26,8 @@ NivoraFi splits yield-bearing assets (such as Blend Protocol bUSDC and XLM vault
 - `/trade/[market]` — PT/YT Swap, Mint, Liquidity, Redeem & Rollover Desk
 - `/pools` — Liquidity Pools & Live Indexer Analytics
 - `/portfolio` — User Balances, Pending Yield & Position Management
+- `/terms` — Non-Custodial Protocol Terms of Service
+- `/privacy` — Zero-Cookie & Zero-Tracker Privacy Policy
 
 ## Links
 

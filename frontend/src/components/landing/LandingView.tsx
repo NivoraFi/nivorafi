@@ -213,6 +213,39 @@ export function LandingView({
           </DirectionalReveal>
         </div>
       </div>
+
+      {/* 5. Minimalist Frosted Glass Footer Strip */}
+      <footer className="mt-14 sm:mt-20 w-full max-w-5xl pt-6 border-t border-glass-rim flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-ink-muted">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-ink">NivoraFi</span>
+          <span>·</span>
+          <span>Stellar Soroban Testnet</span>
+        </div>
+        <nav aria-label="Footer navigation" className="flex flex-wrap items-center justify-center gap-5">
+          <Link href="/terms" className="hover:text-ink transition-colors">
+            Terms
+          </Link>
+          <Link href="/privacy" className="hover:text-ink transition-colors">
+            Privacy
+          </Link>
+          <a
+            href="https://github.com/NivoraFi/nivorafi"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-ink transition-colors"
+          >
+            GitHub
+          </a>
+          <a
+            href="https://x.com/NivoraFi"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-ink transition-colors"
+          >
+            X (@NivoraFi)
+          </a>
+        </nav>
+      </footer>
     </div>
   );
 }
