@@ -1,0 +1,15 @@
+[package]
+name = "stellar_pendle_tests"
+version = "0.1.0"
+edition = "2021"
+description = "Comprehensive Soroban integration tests for Stellar Pendle"
+
+[dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+common = { workspace = true }
+mock_blend = { workspace = true }
+sy_blend_wrapper = { workspace = true }
+pt_token = { workspace = true }
+yt_token = { workspace = true }
+yield_pool = { workspace = true }
+market_factory = { workspace = true }

@@ -1,0 +1,17 @@
+[package]
+name = "yt_token"
+version = "0.1.0"
+edition = "2021"
+description = "SEP-41 compliant Yield Token with checkpointing hook for Stellar Pendle"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+common = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+mock_blend = { workspace = true }
+sy_blend_wrapper = { workspace = true }

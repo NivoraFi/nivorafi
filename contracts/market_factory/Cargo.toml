@@ -1,0 +1,20 @@
+[package]
+name = "market_factory"
+version = "0.1.0"
+edition = "2021"
+description = "Multi-Market Factory and Atomic Rollover Router for Stellar Pendle"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+common = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+mock_blend = { workspace = true }
+sy_blend_wrapper = { workspace = true }
+pt_token = { workspace = true }
+yt_token = { workspace = true }
+yield_pool = { workspace = true }

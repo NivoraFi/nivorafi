@@ -1,0 +1,421 @@
+/* Hallmark · checked: 2026-11-11 · genre: atmospheric · shape: app screen · built: the project · redesign: polish · v2.0.0 */
+@import "tailwindcss";
+
+:root {
+  /* Legacy baseline tokens:
+     --bg-canvas: #05080c;
+     --bg-surface: #0a0f16;
+     --ink-primary: #f2f7f5;
+     --console-bg: #030608;
+     --border-hairline: rgba(148, 163, 184, 0.12);
+  */
+
+  /* Pendle V2 Deep Slate-Navy Canvas */
+  --bg-canvas: #070b14;
+  --bg-surface: #0d1424;
+  --bg-surface-glass: #0c1322;
+  --bg-surface-muted: #090e1a;
+  --bg-surface-hover: #141e33;
+  --bg-recessed: rgba(4, 8, 16, 0.55);
+
+  /* Dark Glassmorphism Translucent Backgrounds */
+  --bg-glass-panel: rgba(13, 20, 36, 0.70);
+  --bg-glass-card: rgba(12, 19, 34, 0.55);
+  --bg-glass-elevated: rgba(20, 30, 51, 0.65);
+  --bg-glass-interactive: rgba(255, 255, 255, 0.04);
+  --bg-glass-surface: rgba(10, 16, 28, 0.75);
+
+  /* Specular Highlights */
+  --glass-specular: inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+  --glass-specular-bright: inset 0 1px 0 0 rgba(255, 255, 255, 0.22);
+  --glass-specular-soft: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+
+  /* Rim Borders */
+  --glass-rim: rgba(255, 255, 255, 0.10);
+  --glass-rim-subtle: rgba(255, 255, 255, 0.05);
+  --glass-rim-glow: rgba(6, 182, 212, 0.25);
+  --glass-border: rgba(148, 163, 184, 0.14);
+
+  /* Mask & Gradient Tokens */
+  --mask-gradient-fill: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(255, 255, 255, 0.03) 45%,
+    rgba(6, 182, 212, 0.25) 100%
+  );
+  --mask-solid: linear-gradient(#fff 0 0);
+  --mask-progressive-top: linear-gradient(to bottom, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.75) 40%, rgba(0, 0, 0, 0.25) 75%, transparent 100%);
+  --mask-progressive-bottom: linear-gradient(to top, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.75) 40%, rgba(0, 0, 0, 0.25) 75%, transparent 100%);
+
+  /* Institutional Typography */
+  --ink-primary: #f1f5f9;
+  --ink-secondary: #94a3b8;
+  --ink-muted: #66768e;
+
+  /* Precision Double-Bezel & Hairlines */
+  --border-hairline: rgba(148, 163, 184, 0.12);
+  --border-strong: rgba(6, 182, 212, 0.38);
+  --border-glow: rgba(16, 185, 129, 0.42);
+
+  /* Pendle V2 YT Cyan-Blue */
+  --accent-signal: #06b6d4;
+  --accent-signal-hover: #0891b2;
+  --accent-signal-ink: #020810;
+  --accent-signal-soft: rgba(6, 182, 212, 0.14);
+  --focus-ring: #06b6d4;
+
+  /* Pendle V2 PT Emerald */
+  --positive-signal: #10b981;
+  --positive-soft: rgba(16, 185, 129, 0.14);
+  --positive-ink: #03150e;
+  --positive-hover: #059669;
+  --warn-signal: #d97706;
+  --warn-soft: rgba(217, 119, 6, 0.14);
+  --danger-signal: #e11d48;
+  --danger-soft: rgba(225, 29, 72, 0.14);
+
+  --border-pt-pill: rgba(16, 185, 129, 0.35);
+  --border-yt-pill: rgba(6, 182, 212, 0.35);
+
+  /* Deep Space Terminal Tokens */
+  --console-bg: #040810;
+  --console-surface: #091020;
+  --console-text: #f1f5f9;
+  --console-muted: #66768e;
+  --console-hairline: rgba(148, 163, 184, 0.12);
+  --console-accent: #06b6d4;
+
+  /* Layered Shadows */
+  --shadow-card: 0 4px 20px -2px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(148, 163, 184, 0.08);
+  --shadow-floating: 0 16px 48px -12px rgba(0, 0, 0, 0.85), 0 0 20px -4px rgba(6, 182, 212, 0.12);
+  --shadow-accent: 0 2px 10px rgba(6, 182, 212, 0.2);
+  --shadow-accent-hover: 0 4px 14px rgba(6, 182, 212, 0.35);
+  --shadow-pt: 0 2px 10px rgba(16, 185, 129, 0.2);
+  --shadow-pt-hover: 0 4px 14px rgba(16, 185, 129, 0.35);
+
+  /* Layered Glass Float Shadows */
+  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.55), 0 1px 2px 0 rgba(0, 0, 0, 0.40), inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+  --shadow-glass-elevated: 0 16px 48px -8px rgba(0, 0, 0, 0.75), 0 0 20px -4px rgba(6, 182, 212, 0.12), inset 0 1px 0 0 rgba(255, 255, 255, 0.14);
+  --shadow-glass-hover: 0 12px 36px 0 rgba(0, 0, 0, 0.65), 0 0 16px -2px rgba(6, 182, 212, 0.18), inset 0 1px 0 0 rgba(255, 255, 255, 0.16);
+
+  /* Atmospheric Glows & Mesh */
+  --glow-cyan: rgba(6, 182, 212, 0.15);
+  --glow-emerald: rgba(16, 185, 129, 0.12);
+  --glow-violet: rgba(168, 85, 247, 0.10);
+  --ambient-mesh: radial-gradient(850px 500px at 50% -80px, rgba(6, 182, 212, 0.08), transparent 70%), radial-gradient(700px 450px at 95% 30%, rgba(16, 185, 129, 0.05), transparent 65%), radial-gradient(600px 400px at 5% 65%, rgba(168, 85, 247, 0.04), transparent 60%);
+}
+
+@theme inline {
+  --font-sans: var(--font-display), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-code), ui-monospace, SFMono-Regular, monospace;
+
+  --color-canvas: var(--bg-canvas);
+  --color-surface: var(--bg-surface);
+  --color-surface-glass: var(--bg-surface-glass);
+  --color-surface-muted: var(--bg-surface-muted);
+  --color-surface-hover: var(--bg-surface-hover);
+
+  --color-ink: var(--ink-primary);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-ink-muted: var(--ink-muted);
+
+  --color-hairline: var(--border-hairline);
+  --color-hairline-strong: var(--border-strong);
+  --color-hairline-glow: var(--border-glow);
+
+  --color-accent: var(--accent-signal);
+  --color-accent-hover: var(--accent-signal-hover);
+  --color-accent-ink: var(--accent-signal-ink);
+  --color-accent-soft: var(--accent-signal-soft);
+
+  --color-positive: var(--positive-signal);
+  --color-positive-soft: var(--positive-soft);
+  --color-warn: var(--warn-signal);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger-signal);
+  --color-danger-soft: var(--danger-soft);
+
+  --color-console: var(--console-bg);
+  --color-console-surface: var(--console-surface);
+  --color-console-text: var(--console-text);
+  --color-console-muted: var(--console-muted);
+  --color-console-hairline: var(--console-hairline);
+  --color-console-accent: var(--console-accent);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-floating: var(--shadow-floating);
+
+  /* Dark Glassmorphism Design Tokens */
+  --bg-glass-panel: var(--bg-glass-panel);
+  --bg-glass-card: var(--bg-glass-card);
+  --bg-glass-elevated: var(--bg-glass-elevated);
+  --bg-glass-interactive: var(--bg-glass-interactive);
+  --bg-glass-surface: var(--bg-glass-surface);
+
+  --color-glass-panel: var(--bg-glass-panel);
+  --color-glass-card: var(--bg-glass-card);
+  --color-glass-elevated: var(--bg-glass-elevated);
+  --color-glass-interactive: var(--bg-glass-interactive);
+  --color-glass-surface: var(--bg-glass-surface);
+
+  --glass-specular: var(--glass-specular);
+  --glass-specular-bright: var(--glass-specular-bright);
+  --glass-specular-soft: var(--glass-specular-soft);
+
+  --glass-rim: var(--glass-rim);
+  --glass-rim-subtle: var(--glass-rim-subtle);
+  --glass-rim-glow: var(--glass-rim-glow);
+  --glass-border: var(--glass-border);
+
+  --color-glass-rim: var(--glass-rim);
+  --color-glass-rim-subtle: var(--glass-rim-subtle);
+  --color-glass-rim-glow: var(--glass-rim-glow);
+  --color-glass-border: var(--glass-border);
+
+  --shadow-glass: var(--shadow-glass);
+  --shadow-glass-elevated: var(--shadow-glass-elevated);
+  --shadow-glass-hover: var(--shadow-glass-hover);
+
+  --glow-cyan: var(--glow-cyan);
+  --glow-emerald: var(--glow-emerald);
+  --glow-violet: var(--glow-violet);
+  --ambient-mesh: var(--ambient-mesh);
+
+  --color-glow-cyan: var(--glow-cyan);
+  --color-glow-emerald: var(--glow-emerald);
+  --color-glow-violet: var(--glow-violet);
+}
+
+html,
+body {
+  background-color: var(--bg-canvas);
+  color: var(--ink-primary);
+  font-feature-settings: "cv02", "cv03", "cv04";
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+  scrollbar-color: var(--ink-muted) var(--bg-canvas);
+  caret-color: var(--accent-signal);
+}
+
+::selection {
+  background-color: var(--accent-signal);
+  color: var(--accent-signal-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Tabular mono numbers for all financial values and addresses */
+.tabular-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Double-bezel machined border container */
+.double-bezel {
+  background: var(--bg-surface-glass);
+  border: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-card);
+  position: relative;
+}
+
+.double-bezel-recessed {
+  background: var(--bg-recessed);
+  border: 1px solid var(--border-hairline);
+}
+
+/* Dark Glassmorphism Panels */
+.glass-panel {
+  background-color: var(--bg-glass-panel);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-glass);
+  position: relative;
+}
+
+.glass-panel-elevated {
+  background-color: var(--bg-glass-elevated);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  border: 1px solid var(--glass-rim);
+  box-shadow: var(--shadow-glass-elevated);
+  position: relative;
+}
+
+.glass-card {
+  background-color: var(--bg-glass-card);
+  backdrop-filter: blur(16px) saturate(135%);
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
+  border: 1px solid var(--glass-rim-subtle);
+  box-shadow: var(--shadow-glass);
+  position: relative;
+}
+
+.glass-interactive {
+  transition: background-color 180ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.glass-interactive:hover {
+  background-color: var(--bg-glass-interactive);
+  border-color: var(--glass-rim-glow);
+  box-shadow: var(--shadow-glass-hover);
+}
+
+/* Gradient Rim Border Utility (masked pseudo-element) */
+.border-gradient {
+  position: relative;
+}
+
+.border-gradient::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  -webkit-mask: var(--mask-solid) content-box, var(--mask-solid);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  background: var(--mask-gradient-fill);
+  pointer-events: none;
+}
+
+/* Progressive Blur Overlays */
+.progressive-blur-top {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  pointer-events: none;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  mask-image: var(--mask-progressive-top);
+  -webkit-mask-image: var(--mask-progressive-top);
+}
+
+.progressive-blur-bottom {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  pointer-events: none;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  mask-image: var(--mask-progressive-bottom);
+  -webkit-mask-image: var(--mask-progressive-bottom);
+}
+
+/* Ambient Atmospheric Canvas Mesh */
+.atmospheric-mesh {
+  background-image: var(--ambient-mesh);
+  background-repeat: no-repeat;
+}
+
+/* Refined, mature deep-blue button without excessive neon glow */
+.btn-accent {
+  background: var(--accent-signal);
+  color: var(--accent-signal-ink);
+  font-weight: 600;
+  transition: background-color 180ms cubic-bezier(0.22, 1, 0.36, 1), color 180ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms cubic-bezier(0.22, 1, 0.36, 1), transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow: var(--shadow-accent);
+}
+
+.btn-accent:hover:not(:disabled) {
+  background: var(--accent-signal-hover);
+  box-shadow: var(--shadow-accent-hover);
+  transform: translateY(-1px);
+}
+
+.btn-accent:disabled {
+  opacity: 0.45;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* Pendle V2 Emerald PT primary button */
+.btn-pt {
+  background: var(--positive-signal);
+  color: var(--positive-ink);
+  font-weight: 600;
+  transition: background-color 180ms cubic-bezier(0.22, 1, 0.36, 1), color 180ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms cubic-bezier(0.22, 1, 0.36, 1), transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow: var(--shadow-pt);
+}
+
+.btn-pt:hover:not(:disabled) {
+  background: var(--positive-hover);
+  box-shadow: var(--shadow-pt-hover);
+  transform: translateY(-1px);
+}
+
+.btn-pt:disabled {
+  opacity: 0.45;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* Subtle emerald pill border/background for PT Fixed APY boxes */
+.pendle-pt-pill {
+  background: var(--positive-soft);
+  border: 1px solid var(--border-pt-pill);
+  color: var(--positive-signal);
+}
+
+/* Subtle cyan pill border/background for YT Long Yield boxes */
+.pendle-yt-pill {
+  background: var(--accent-signal-soft);
+  border: 1px solid var(--border-yt-pill);
+  color: var(--accent-signal);
+}
+
+/* Ultra-minimalist monochrome primary button */
+.btn-monochrome {
+  background: var(--ink-primary);
+  color: var(--bg-canvas);
+  font-weight: 600;
+  transition: background-color 180ms cubic-bezier(0.22, 1, 0.36, 1), color 180ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms cubic-bezier(0.22, 1, 0.36, 1), transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow: var(--shadow-floating);
+}
+
+.btn-monochrome:hover:not(:disabled) {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+.btn-monochrome:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Minimalist solid elevated secondary button */
+.btn-monochrome-secondary {
+  background: var(--bg-surface-glass);
+  border: 1px solid var(--border-hairline);
+  color: var(--ink-secondary);
+  transition: background-color 180ms cubic-bezier(0.22, 1, 0.36, 1), color 180ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms cubic-bezier(0.22, 1, 0.36, 1), transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.btn-monochrome-secondary:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+  color: var(--ink-primary);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass-panel,
+  .glass-panel-elevated,
+  .glass-card {
+    background-color: var(--bg-surface);
+    color: var(--ink-primary);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

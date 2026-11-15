@@ -1,0 +1,36 @@
+# NivoraFi
+
+> Fixed Yield & Yield Tokenization AMM Protocol built natively on Stellar Soroban.
+
+NivoraFi splits yield-bearing assets (such as Blend Protocol bUSDC and XLM vaults) into Principal Tokens (PT) and Yield Tokens (YT), enabling fixed-rate yield, yield leverage, and liquidity provision via a time-decaying log-normal AMM.
+
+## Core Architecture
+
+- **Standardized Yield (SY):** Wraps underlying Stellar/Blend yield-bearing positions into a unified Soroban SEP-41 token interface.
+- **Principal Token (PT):** Redeemable 1:1 for underlying SY at maturity, trading at a discount prior to maturity to lock in a fixed APY.
+- **Yield Token (YT):** Captures all variable Blend lending yield until maturity; traded in a single unified PT/SY pool via 2-step Picard iteration flash swaps without fragmenting liquidity.
+- **1-Click Atomic Rollover:** Migrates matured PT positions directly into a new active maturity pool (PT or LP) in a single Soroban transaction.
+- **Persistent Event Indexer & BFF:** Next.js BFF proxy (`/api/indexer/*`) backed by a persistent SQLite Soroban event indexer with `x-indexer-secret` origin authentication.
+
+## Active Markets (Stellar Testnet)
+
+- `usdc-90d` — bUSDC 90-Day Fixed Yield Market
+- `usdc-30d` — bUSDC 30-Day Fixed Yield Market
+- `xlm-90d` — XLM 90-Day Fixed Yield Market
+- `usdc-matured` — bUSDC Matured Settlement & Rollover Market
+
+## Key Routes
+
+- `/` — Protocol Overview & Live Yield Desk
+- `/markets` — Active Yield Markets Explorer
+- `/trade/[market]` — PT/YT Swap, Mint, Liquidity, Redeem & Rollover Desk
+- `/pools` — Liquidity Pools & Live Indexer Analytics
+- `/portfolio` — User Balances, Pending Yield & Position Management
+
+## Links
+
+- App: https://www.nivorafi.xyz
+- Canonical: https://www.nivorafi.xyz
+- Full LLM Reference: https://www.nivorafi.xyz/llms-full.txt
+- X: https://x.com/NivoraFi
+- GitHub: https://github.com/NivoraFi/nivorafi

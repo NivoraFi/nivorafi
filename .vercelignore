@@ -1,0 +1,13 @@
+/target
+/contracts
+/agent
+/indexer
+/tests
+/e2e_tests
+/verification
+**/node_modules
+**/.next
+*.tsbuildinfo
+*.db
+*.db-wal
+*.db-shm

@@ -1,0 +1,17 @@
+{
+  "name": "stellar-pendle-e2e-tests",
+  "version": "1.0.0",
+  "description": "Opaque-box 4-tier E2E test harness for Stellar Pendle Yield Stripping & Fixed Yield Protocol",
+  "main": "src/protocol-simulator.ts",
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "test:tier1": "bun test tests/tier1_feature_coverage.test.ts",
+    "test:tier2": "bun test tests/tier2_boundary_corner.test.ts",
+    "test:tier3": "bun test tests/tier3_cross_feature.test.ts",
+    "test:tier4": "bun test tests/tier4_real_world_scenarios.test.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "stellar-pendle": {
+      "command": "bun",
+      "args": ["run", "/path/to/nivorafi/agent/src/mcp-server.ts"],
+      "env": {
+        "STELLAR_PENDLE_MANIFEST": "/path/to/nivorafi/deployed_contracts.json"
+      }
+    },
+    "stellar-raven": {
+      "url": "https://raven.stellar.buzz/mcp"
+    },
+    "stellar-devkit": {
+      "command": "bunx",
+      "args": ["stellar-devkit-mcp@latest"]
+    }
+  }
+}

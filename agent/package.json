@@ -1,0 +1,25 @@
+{
+  "name": "stellar-pendle-agent",
+  "version": "0.1.0",
+  "description": "TypeScript SDK, autonomous strategy runner, and Model Context Protocol (MCP) server for Stellar Pendle",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "stellar-pendle-mcp": "src/mcp-server.ts"
+  },
+  "scripts": {
+    "mcp": "bun run src/mcp-server.ts",
+    "demo": "bun run src/demo.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@stellar/stellar-sdk": "^17.4.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3"
+  }
+}

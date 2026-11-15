@@ -1,0 +1,329 @@
+{
+  "network": "testnet",
+  "networkPassphrase": "Test SDF Network ; September 2015",
+  "rpcUrl": "https://soroban-testnet.stellar.org",
+  "horizonUrl": "https://horizon-testnet.stellar.org",
+  "deployer": "GAWWVHMXQPW36YWCU37K3SGBWHCVF2QG3AZSS43LPMRKSQXMHUFYME27",
+  "deployedAt": "2026-11-08T10:19:00Z",
+  "market": {
+    "name": "Pendle bUSDC PT 90D",
+    "symbol": "PT-bUSDC-90D",
+    "maturity": 1801909055,
+    "maturityIso": "2027-02-06T10:17:35Z",
+    "decimals": 7,
+    "scalarRoot": "8000000000000000000",
+    "initialAnchor": "1000000000000000000",
+    "underlyingAsset": {
+      "code": "USDC",
+      "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      "sacContractId": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
+    }
+  },
+  "contracts": {
+    "mock_blend": {
+      "contractId": "CC7Q7FZ5YLBP3EOH635VYRC4EZDVTXVOMYZVP55Q6YIUSIXVHCJXETK6",
+      "wasmHash": "3e898f421dc49c11be2d26f865d98516841c7f08145eae7165e859109d80f393",
+      "wasmSizeBytes": 9785,
+      "deployTx": "dd68d7ee1c595fcd6d1fd1ec021518f3f8dd7078b21e4050b40a3d7319a1c5e0",
+      "initTx": "c8ca52f1132a7002cac713012334d5c37585b2e1b0c130f5a9fbae5351bf2b8e",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/contract/CC7Q7FZ5YLBP3EOH635VYRC4EZDVTXVOMYZVP55Q6YIUSIXVHCJXETK6"
+    },
+    "sy_blend_wrapper": {
+      "contractId": "CCOOCS3PQPCKGUHQU2HELFUQ6Y7VRNKFMCJIAIG4S2FSUGTRSKYQLWP5",
+      "wasmHash": "b138fe4e9fc311d48496d261f1c20c2f48a02fecd147296010871bf71a8c7098",
+      "wasmSizeBytes": 15589,
+      "deployTx": "1278ce43d9121eced5c5788b55640a6694703dbacad46af5c25b1685bc65ec2e",
+      "initTx": "c67fb2878488e9cdb54a460a1f33de151a921b725d8d2253bc506f890d73d23d",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/contract/CCOOCS3PQPCKGUHQU2HELFUQ6Y7VRNKFMCJIAIG4S2FSUGTRSKYQLWP5"
+    },
+    "pt_token": {
+      "contractId": "CCYQPUI7VI7GJKJM6JZIWVVZPJ4GKZ2ZYQ5FT5JBMSXHZITDOVRMS37A",
+      "wasmHash": "0708e820c6879d998a16ece4def695a2ac43fe3c949c9e1a46c0358a13395390",
+      "wasmSizeBytes": 10626,
+      "deployTx": "92ac5881e987c602757c22a8196116af25fe9f43aae28f441a4ad7487c846fc0",
+      "initTx": "b8510f9623acd3b6cdcae01f34dd18c01bcfdca1736e1818096d12a4880a1fac",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/contract/CCYQPUI7VI7GJKJM6JZIWVVZPJ4GKZ2ZYQ5FT5JBMSXHZITDOVRMS37A"
+    },
+    "yt_token": {
+      "contractId": "CCH3B54EW4XZKA6IBHJ2XFLDQCAJZWQ2N2ZREZDUNPJLLMOD3E5B7Z73",
+      "wasmHash": "e54c906ec411940b827eae2492b0408980d05684e23a9c7514abb459dceee7f1",
+      "wasmSizeBytes": 16185,
+      "deployTx": "4c9112a5d5ba15e8eaa1b51d1b0a357428099f7557c34029f9ecb95c7e2b2af6",
+      "initTx": "3fd8f7961ece3e6e1f780ee4b70fb53bd01240fb9ed99c566966c631ac5f349b",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/contract/CCH3B54EW4XZKA6IBHJ2XFLDQCAJZWQ2N2ZREZDUNPJLLMOD3E5B7Z73"
+    },
+    "yield_pool": {
+      "contractId": "CBOADRSNADEGKGNGOAVJ2W53PMF5L6TM33RCOTDBREGDWUFMT4JLAGBF",
+      "wasmHash": "fee1bd24bf05ed8deb9d82603469e8e6dc6b542000ecd9cb8b80c97b47357e2f4",
+      "wasmSizeBytes": 39514,
+      "deployTx": "fcd2b51c77d39dc9d423317c3c57873a431501e0144b62be3e059dc61657c9f9",
+      "initTx": "7536d0bcb83d0932c039a3e0ce3ac99ab5a36b7e88eb151f4ddfac1938fcaea2",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/contract/CBOADRSNADEGKGNGOAVJ2W53PMF5L6TM33RCOTDBREGDWUFMT4JLAGBF"
+    },
+    "market_factory": {
+      "contractId": "CCO4RP43OJPAP6H2NLVF4RLMQ5OSHRG2NJC3HAQU2L4KXCD5NFJS57JL",
+      "wasmHash": "f60e1351b1ac6daa49c854d4b715d862b81c9210289b70cd79a9665f7214db75",
+      "wasmSizeBytes": 26160,
+      "deployTx": "0a5a02383fabb9bb0bf37cee04232ab567e26828262ff9ee957099f54767e4cd",
+      "initTx": "5748888493333624e4ae4435ef944a0ced59e60418f70d77879279c2598ff92a",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/contract/CCO4RP43OJPAP6H2NLVF4RLMQ5OSHRG2NJC3HAQU2L4KXCD5NFJS57JL"
+    }
+  },
+  "verificationTransactions": {
+    "deposit_sy": {
+      "txHash": "2a6a3ac22bfd07dc6c237878cc42f20515b076880be0be7649d23d7b99424dde",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/2a6a3ac22bfd07dc6c237878cc42f20515b076880be0be7649d23d7b99424dde",
+      "description": "Deposit 13.0 USDC into sy_blend_wrapper (minted 13.0 sy-bUSDC)"
+    },
+    "mint_py": {
+      "txHash": "f8f53f7678faced39155be2f859bf692d9731095287cf68207fa1795eac1be35",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/f8f53f7678faced39155be2f859bf692d9731095287cf68207fa1795eac1be35",
+      "description": "Split 9.0 sy-bUSDC into 9.0 PT-bUSDC-90D + 9.0 YT-bUSDC-90D"
+    },
+    "add_liquidity": {
+      "txHash": "7e64f4ff743852f770069eecad46600f688eadb1e0e102bf83a7af20450be53b",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/7e64f4ff743852f770069eecad46600f688eadb1e0e102bf83a7af20450be53b",
+      "description": "Seeded AMM pool with 8.0 PT + 4.0 SY (minted 5.6567542 LP shares)"
+    },
+    "swap_exact_pt_for_sy": {
+      "txHash": "b63f85994ca756e0f0a8f8550a9106748a16f40bbebd8645429478b4b1d68dca",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/b63f85994ca756e0f0a8f8550a9106748a16f40bbebd8645429478b4b1d68dca",
+      "description": "Swapped 0.5 PT -> 0.4837612 SY (fee 0.0048864)"
+    },
+    "swap_exact_sy_for_pt": {
+      "txHash": "f203ac746e86a732c8f05893f1dd36caeb6ba45882f0e55baf7c44543a4a6d77",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/f203ac746e86a732c8f05893f1dd36caeb6ba45882f0e55baf7c44543a4a6d77",
+      "description": "Swapped 0.2 SY -> 0.2030506 PT (fee 0.0020510)"
+    },
+    "swap_exact_sy_for_yt": {
+      "txHash": "5518e99688da2890dc4a849b080b086143a7ee4f177b87210096467bc55a0d48",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/5518e99688da2890dc4a849b080b086143a7ee4f177b87210096467bc55a0d48",
+      "description": "Flash swapped 0.02 SY -> 0.7355589 YT"
+    },
+    "redeem_py": {
+      "txHash": "7be486ad4cef8b9c92e0d8ee676dc6b03638f08a9ea3ae296c61a26f2bc5b2cb",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/7be486ad4cef8b9c92e0d8ee676dc6b03638f08a9ea3ae296c61a26f2bc5b2cb",
+      "description": "Unwound 0.2 PT + 0.2 YT -> 0.2 sy-bUSDC"
+    },
+    "redeem_sy": {
+      "txHash": "98df889092d1f46e9e230a220e3d639d62512542cff31bc9b13b12f7e03a1e7e",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/98df889092d1f46e9e230a220e3d639d62512542cff31bc9b13b12f7e03a1e7e",
+      "description": "Redeemed 0.2 sy-bUSDC -> 0.2 USDC"
+    },
+    "fund_interest_reserve": {
+      "txHash": "8c23876ae7e639d70e681883740a18a23cdee77c8e59d22afffd4fa4e3c57cf6",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/8c23876ae7e639d70e681883740a18a23cdee77c8e59d22afffd4fa4e3c57cf6",
+      "description": "Transferred 0.05 USDC interest reserve to mock_blend pool"
+    },
+    "set_b_rate": {
+      "txHash": "61a1bf4182f176ce2cfdf9d331eeba40bc88e24b1533475e39cee090ad97b328",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/61a1bf4182f176ce2cfdf9d331eeba40bc88e24b1533475e39cee090ad97b328",
+      "description": "Updated Blend bRate index from 1.000000000 to 1.001000000 (+0.1% yield)"
+    },
+    "claim_yield": {
+      "txHash": "b9c52f274bddd0e20ed8c36876171cb544aa2f4180aa2612521e5a2225ceeefc",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/b9c52f274bddd0e20ed8c36876171cb544aa2f4180aa2612521e5a2225ceeefc",
+      "description": "Claimed 0.0095259 sy-bUSDC accrued variable yield from YT holdings"
+    },
+    "deploy_market_factory": {
+      "txHash": "0a5a02383fabb9bb0bf37cee04232ab567e26828262ff9ee957099f54767e4cd",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/0a5a02383fabb9bb0bf37cee04232ab567e26828262ff9ee957099f54767e4cd",
+      "description": "Deployed market_factory contract (CCO4RP43OJPAP6H2NLVF4RLMQ5OSHRG2NJC3HAQU2L4KXCD5NFJS57JL)"
+    },
+    "init_market_factory": {
+      "txHash": "5748888493333624e4ae4435ef944a0ced59e60418f70d77879279c2598ff92a",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/5748888493333624e4ae4435ef944a0ced59e60418f70d77879279c2598ff92a",
+      "description": "Initialized market_factory with governance admin, guardian, and WASM hashes"
+    },
+    "register_market_0_usdc_90d": {
+      "txHash": "054217370d9411aa3fc25c7d17505c296d239be2d168067b2b6af9fe138fc86c",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/054217370d9411aa3fc25c7d17505c296d239be2d168067b2b6af9fe138fc86c",
+      "description": "Registered Market 0 (USDC 90D) in market_factory"
+    },
+    "deploy_pool_usdc_30d": {
+      "txHash": "ac9a5287e524c5d0b278e945d05305de2e8dad3c262836b66c8f33ec087f84cc",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/ac9a5287e524c5d0b278e945d05305de2e8dad3c262836b66c8f33ec087f84cc",
+      "description": "Deployed yield_pool for Market 1 (USDC 30D)"
+    },
+    "init_pool_usdc_30d": {
+      "txHash": "76909dee4b5481cee17073babaca9b19cd5ffaef7b2638b8cdf8c3331d7a08e1",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/76909dee4b5481cee17073babaca9b19cd5ffaef7b2638b8cdf8c3331d7a08e1",
+      "description": "Initialized yield_pool for Market 1 (USDC 30D)"
+    },
+    "deploy_pt_usdc_30d": {
+      "txHash": "53532a7c26e43d7be1775a2d5a8726b54aa8d15e90135d79e9ad1c34f19d6fa1",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/53532a7c26e43d7be1775a2d5a8726b54aa8d15e90135d79e9ad1c34f19d6fa1",
+      "description": "Deployed pt_token (PT-bUSDC-30D)"
+    },
+    "init_pt_usdc_30d": {
+      "txHash": "38457b2020a71e68b5d5236945aa8717455d681adeb06f98c6d30e2c7c600ef3",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/38457b2020a71e68b5d5236945aa8717455d681adeb06f98c6d30e2c7c600ef3",
+      "description": "Initialized pt_token (PT-bUSDC-30D)"
+    },
+    "deploy_yt_usdc_30d": {
+      "txHash": "3cb4d71ffaa7206ed6990dc4cf7868dd008403c5a51c9de321dc343ae61e028d",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/3cb4d71ffaa7206ed6990dc4cf7868dd008403c5a51c9de321dc343ae61e028d",
+      "description": "Deployed yt_token (YT-bUSDC-30D)"
+    },
+    "init_yt_usdc_30d": {
+      "txHash": "5b9ba5652eb3cf67bdb58846a14bd47e85853b93b5c421a05f58c068632a4145",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/5b9ba5652eb3cf67bdb58846a14bd47e85853b93b5c421a05f58c068632a4145",
+      "description": "Initialized yt_token (YT-bUSDC-30D)"
+    },
+    "register_market_1_usdc_30d": {
+      "txHash": "c46321da323bc75e6de01f9a6cd904f4f7620e9efd7c7ad8255dc2ea6912ed0e",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/c46321da323bc75e6de01f9a6cd904f4f7620e9efd7c7ad8255dc2ea6912ed0e",
+      "description": "Registered Market 1 (USDC 30D) in market_factory"
+    },
+    "deploy_sy_xlm": {
+      "txHash": "45f1dce9c93eab1a6e130398874441593f386ed80f7f9c2667a2e67fe04512d2",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/45f1dce9c93eab1a6e130398874441593f386ed80f7f9c2667a2e67fe04512d2",
+      "description": "Deployed sy_blend_wrapper for native XLM SAC"
+    },
+    "init_sy_xlm": {
+      "txHash": "ed0fe44c44adea6c325c2ea902ab3d6a0b0e5cc9d0a79c2d433a1b359d33f48a",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/ed0fe44c44adea6c325c2ea902ab3d6a0b0e5cc9d0a79c2d433a1b359d33f48a",
+      "description": "Initialized sy_blend_wrapper for native XLM SAC"
+    },
+    "deploy_pool_xlm_90d": {
+      "txHash": "eb875c67f095eebe18907db191eedd0780121ac71853400052f1a09f02f56e0f",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/eb875c67f095eebe18907db191eedd0780121ac71853400052f1a09f02f56e0f",
+      "description": "Deployed yield_pool for Market 2 (XLM 90D)"
+    },
+    "init_pool_xlm_90d": {
+      "txHash": "08c3f49edbe687c5bafeff8f534b40c51cec40c409acfd35da525f5b56a4739f",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/08c3f49edbe687c5bafeff8f534b40c51cec40c409acfd35da525f5b56a4739f",
+      "description": "Initialized yield_pool for Market 2 (XLM 90D)"
+    },
+    "deploy_pt_xlm_90d": {
+      "txHash": "216ad0226acff764efe31551770399e8bd391b8858176f07469e5310cca1049d",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/216ad0226acff764efe31551770399e8bd391b8858176f07469e5310cca1049d",
+      "description": "Deployed pt_token (PT-bXLM-90D)"
+    },
+    "init_pt_xlm_90d": {
+      "txHash": "2158f0629f219c340142eca54e2046610707d8561f3db50da9e386cf73733e06",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/2158f0629f219c340142eca54e2046610707d8561f3db50da9e386cf73733e06",
+      "description": "Initialized pt_token (PT-bXLM-90D)"
+    },
+    "deploy_yt_xlm_90d": {
+      "txHash": "2ded65cbe05d0c63af75f39efeb3209d8e7514c3b3a886ad03acf3ed350fe03a",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/2ded65cbe05d0c63af75f39efeb3209d8e7514c3b3a886ad03acf3ed350fe03a",
+      "description": "Deployed yt_token (YT-bXLM-90D)"
+    },
+    "init_yt_xlm_90d": {
+      "txHash": "9a22b1b0743ee96ba6904f939c9226a2c99144217ccb37836323d7a76bdbe8b1",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/9a22b1b0743ee96ba6904f939c9226a2c99144217ccb37836323d7a76bdbe8b1",
+      "description": "Initialized yt_token (YT-bXLM-90D)"
+    },
+    "register_market_2_xlm_90d": {
+      "txHash": "07202a20673032ff375002d9da895e2c44c823734215a90079baf38650176aca",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/07202a20673032ff375002d9da895e2c44c823734215a90079baf38650176aca",
+      "description": "Registered Market 2 (XLM 90D) in market_factory"
+    }
+  },
+  "markets": [
+    {
+      "id": "usdc-90d",
+      "factoryId": 0,
+      "name": "Pendle bUSDC PT 90D",
+      "symbol": "PT-bUSDC-90D",
+      "tenor": "90D",
+      "maturity": 1801909055,
+      "maturityIso": "2027-02-06T10:17:35Z",
+      "decimals": 7,
+      "scalarRoot": "8000000000000000000",
+      "initialAnchor": "1000000000000000000",
+      "asset": {
+        "code": "USDC",
+        "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        "sacContractId": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
+      },
+      "contracts": {
+        "pool": "CBOADRSNADEGKGNGOAVJ2W53PMF5L6TM33RCOTDBREGDWUFMT4JLAGBF",
+        "sy": "CCOOCS3PQPCKGUHQU2HELFUQ6Y7VRNKFMCJIAIG4S2FSUGTRSKYQLWP5",
+        "pt": "CCYQPUI7VI7GJKJM6JZIWVVZPJ4GKZ2ZYQ5FT5JBMSXHZITDOVRMS37A",
+        "yt": "CCH3B54EW4XZKA6IBHJ2XFLDQCAJZWQ2N2ZREZDUNPJLLMOD3E5B7Z73",
+        "blendPool": "CC7Q7FZ5YLBP3EOH635VYRC4EZDVTXVOMYZVP55Q6YIUSIXVHCJXETK6"
+      },
+      "isRegisteredOnChain": true,
+      "isVerifiedTestnet": true
+    },
+    {
+      "id": "usdc-30d",
+      "factoryId": 1,
+      "name": "Pendle bUSDC PT 30D",
+      "symbol": "PT-bUSDC-30D",
+      "tenor": "30D",
+      "maturity": 1796725055,
+      "maturityIso": "2026-12-08T10:17:35Z",
+      "decimals": 7,
+      "scalarRoot": "4000000000000000000",
+      "initialAnchor": "1000000000000000000",
+      "asset": {
+        "code": "USDC",
+        "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        "sacContractId": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
+      },
+      "contracts": {
+        "pool": "CCITOO7WPWXHNWQIF62CD7UEW6I3TKXCMPTW4BRTV4UCKBXXEZMZDSFD",
+        "sy": "CCOOCS3PQPCKGUHQU2HELFUQ6Y7VRNKFMCJIAIG4S2FSUGTRSKYQLWP5",
+        "pt": "CDDRGJXC6WT63RGEGA56QJ2EXUBSQSAXHHEQALQ3XJ7PBDK66RRDLLQO",
+        "yt": "CAXRGVEYTP7GWAXVK4MPBI53YEQCSSZVCNKBFFW7KPXMTKV2LYOZKRJP",
+        "blendPool": "CC7Q7FZ5YLBP3EOH635VYRC4EZDVTXVOMYZVP55Q6YIUSIXVHCJXETK6"
+      },
+      "isRegisteredOnChain": true,
+      "isVerifiedTestnet": true
+    },
+    {
+      "id": "xlm-90d",
+      "factoryId": 3,
+      "name": "Pendle bXLM PT 90D",
+      "symbol": "PT-bXLM-90D",
+      "tenor": "90D",
+      "maturity": 1801909056,
+      "maturityIso": "2027-02-06T10:17:36Z",
+      "decimals": 7,
+      "scalarRoot": "8000000000000000000",
+      "initialAnchor": "1000000000000000000",
+      "asset": {
+        "code": "XLM",
+        "sacContractId": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+      },
+      "contracts": {
+        "pool": "CAQ24DFWIZ4GHS6ES6DX236R5EYMMS3DF3BBZE63NKEDGRGO4B7IRTZ4",
+        "sy": "CAOUCLCZGM3WHGQ5S653WQHAMAMPP3UW4IC5VPUIW2XFVDAR3NFJ6B3W",
+        "pt": "CCDD5IJCCNLAR2F5Y4663LFKKSQ32QMWGILFXY46E2SQ4SC3IKAZKRD3",
+        "yt": "CC6VG5R454INCUWAS7K37H5H35Q4WNLH5Y72J4GLXRZ5R225XOFPD4ET",
+        "blendPool": "CAGWGDLWNSSQEYJEE45JEBXAKNJCIHLNUK26TLFFPIWG6PPXHOTJ6DCH"
+      },
+      "isRegisteredOnChain": true,
+      "isVerifiedTestnet": true
+    },
+    {
+      "id": "usdc-matured",
+      "factoryId": 4,
+      "name": "Pendle bUSDC PT Matured",
+      "symbol": "PT-bUSDC-MAT",
+      "tenor": "MATURED",
+      "maturity": 1794455723,
+      "maturityIso": "2026-11-12T03:55:23Z",
+      "decimals": 7,
+      "scalarRoot": "8000000000000000000",
+      "initialAnchor": "1000000000000000000",
+      "asset": {
+        "code": "USDC",
+        "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        "sacContractId": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
+      },
+      "contracts": {
+        "pool": "CASJWZ7LPCGL2QRVOQNXLH4NYX556XW5GB5BX73K6VC7M2L354DQOMH5",
+        "sy": "CCOOCS3PQPCKGUHQU2HELFUQ6Y7VRNKFMCJIAIG4S2FSUGTRSKYQLWP5",
+        "pt": "CDO45MQP43VNVBF5QAU6ORKDVEV4D5RM2EUIBUVORGBUCGABT23JSKQW",
+        "yt": "CDKFTNVVAVU5CSRX3V7GOJYS53MBF52MBRB26M2S4Y34JZWOH7YJQOBY",
+        "blendPool": "CC7Q7FZ5YLBP3EOH635VYRC4EZDVTXVOMYZVP55Q6YIUSIXVHCJXETK6"
+      },
+      "isRegisteredOnChain": true,
+      "isVerifiedTestnet": true
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+[package]
+name = "yield_pool"
+version = "0.1.0"
+edition = "2021"
+description = "Core YieldMarket Router and Log-Normal AMM Pool for Stellar Pendle"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+common = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+mock_blend = { workspace = true }
+sy_blend_wrapper = { workspace = true }
+pt_token = { workspace = true }
+yt_token = { workspace = true }
