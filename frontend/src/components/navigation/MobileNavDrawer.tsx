@@ -132,7 +132,7 @@ export function MobileNavDrawer({
           >
             <div className="relative flex h-8 w-8 items-center justify-center rounded-xl bg-glass-card border border-glass-rim overflow-hidden p-0.5 shadow-glass">
               <Image
-                src="/logo.png"
+                src="/icon.svg"
                 alt="NivoraFi Logo"
                 width={28}
                 height={28}

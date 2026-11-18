@@ -9,6 +9,7 @@ import {
   MarketSummaryMetrics,
   calculateDaysToMaturity,
   deriveMarketStatus,
+  getAssetPriceUsd,
 } from "@/lib/markets";
 import {
   LiveUserPortfolio,
@@ -20,11 +21,11 @@ import {
   saveCachedPortfolioSnapshot,
 } from "@/lib/hybridPortfolio";
 
-// Asset USD Price Oracle fallback
+// Asset USD Price Oracle fallback (synced with markets.ts)
 export const ASSET_USD_PRICES: Record<string, number> = {
-  USDC: 1.0,
-  XLM: 0.12,
-  EURC: 1.08,
+  USDC: getAssetPriceUsd("USDC"),
+  XLM: getAssetPriceUsd("XLM"),
+  EURC: getAssetPriceUsd("EURC"),
 };
 
 export interface MarketPositionItem {
@@ -124,21 +125,30 @@ export function parseMarketPosition(
     syBalance > 0n;
 
   // Pricing & Valuation
-  const usdPrice = ASSET_USD_PRICES[market.asset.code] ?? 1.0;
+  const settledMetric = metric && !metric.isLoading ? metric : null;
+  const usdPrice = ASSET_USD_PRICES[market.asset.code] ?? getAssetPriceUsd(market.asset.code);
   const blendRate =
-    metric && typeof metric.blendRate === "number" && !isNaN(metric.blendRate)
-      ? metric.blendRate
+    settledMetric &&
+    typeof settledMetric.blendRate === "number" &&
+    !isNaN(settledMetric.blendRate) &&
+    settledMetric.blendRate > 0
+      ? settledMetric.blendRate
       : 1.0;
   const ptPriceInSy = isMatured
     ? 1.0
-    : metric && typeof metric.ptPriceInSy === "number" && !isNaN(metric.ptPriceInSy)
-    ? metric.ptPriceInSy
+    : settledMetric &&
+      typeof settledMetric.ptPriceInSy === "number" &&
+      !isNaN(settledMetric.ptPriceInSy) &&
+      settledMetric.ptPriceInSy > 0
+    ? settledMetric.ptPriceInSy
     : 0.98;
   const ytPriceInSy = isMatured ? 0.0 : Math.max(0, 1.0 - ptPriceInSy);
   const impliedApyPct = isMatured
     ? 0.0
-    : metric && typeof metric.impliedApyPct === "number" && !isNaN(metric.impliedApyPct)
-    ? metric.impliedApyPct
+    : settledMetric &&
+      typeof settledMetric.impliedApyPct === "number" &&
+      !isNaN(settledMetric.impliedApyPct)
+    ? settledMetric.impliedApyPct
     : 8.45;
 
   const ptValueSy = (Number(ptBalance) / 1e7) * ptPriceInSy;

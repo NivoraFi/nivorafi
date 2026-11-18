@@ -32,7 +32,7 @@ interface PhaseResult {
 }
 
 const TARGET_HOST = process.env.INDEXER_HOST || "127.0.0.1";
-const TARGET_PORT = process.env.INDEXER_PORT || "8765";
+const TARGET_PORT = process.env.INDEXER_PORT || process.env.PORT || "8765";
 const BASE_URL = `http://${TARGET_HOST}:${TARGET_PORT}`;
 
 async function measureRequest(endpoint: string): Promise<RequestMetric> {

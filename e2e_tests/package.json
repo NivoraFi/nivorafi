@@ -6,12 +6,25 @@
   "type": "module",
   "scripts": {
     "test": "bun test",
+    "test:baseline": "bun test tests/tier1_feature_coverage.test.ts tests/tier2_boundary_corner.test.ts tests/tier3_cross_feature.test.ts tests/tier4_real_world_scenarios.test.ts",
     "test:tier1": "bun test tests/tier1_feature_coverage.test.ts",
     "test:tier2": "bun test tests/tier2_boundary_corner.test.ts",
     "test:tier3": "bun test tests/tier3_cross_feature.test.ts",
-    "test:tier4": "bun test tests/tier4_real_world_scenarios.test.ts"
+    "test:tier4": "bun test tests/tier4_real_world_scenarios.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build:wasm": "cd .. && PATH=\"/Users/goktus/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH\" stellar contract build --profile release",
+    "build:runner": "PATH=\"/Users/goktus/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH\" cargo build --release --manifest-path soroban_runner/Cargo.toml"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@stellar/stellar-sdk": "^17.4.0"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@happy-dom/global-registrator": "^21.0.4",
+    "@types/bun": "latest",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "happy-dom": "^21.0.4",
+    "typescript": "^5.8.3"
   }
 }

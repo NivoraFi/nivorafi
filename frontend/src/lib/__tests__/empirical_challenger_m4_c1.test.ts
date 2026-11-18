@@ -63,12 +63,13 @@ describe("Empirical Challenger M4.1: Market Routing & Tenor Metadata Challenge S
       "usdc-matured",
     ] as const;
 
-    it("1.1 verifies PRESET_MARKETS contains exactly the 4 required canonical markets", () => {
-      expect(PRESET_MARKETS.length).toBe(4);
+    it("1.1 verifies PRESET_MARKETS contains all canonical markets including usdc-slender-90d", () => {
+      expect(PRESET_MARKETS.length).toBe(5);
       const ids = PRESET_MARKETS.map((m) => m.id);
       for (const requiredId of canonicalIds) {
         expect(ids).toContain(requiredId);
       }
+      expect(ids).toContain("usdc-slender-90d");
     });
 
     it("1.2 verifies buildMarketMetadata generates compliant metadata for each canonical market in trade mode", () => {
@@ -402,9 +403,9 @@ describe("Empirical Challenger M4.1: Market Routing & Tenor Metadata Challenge S
   // Suite 6: Next.js 15 Async Route Lifecycle & Static Params Bijectivity
   // =========================================================================
   describe("Suite 6: Next.js 15 Async Route Lifecycle & Static Params Bijectivity", () => {
-    it("6.1 verifies tradeGenerateStaticParams produces exact bijective mapping to all 4 canonical markets", async () => {
+    it("6.1 verifies tradeGenerateStaticParams produces exact bijective mapping to all canonical markets", async () => {
       const staticParams = await tradeGenerateStaticParams();
-      expect(staticParams.length).toBe(4);
+      expect(staticParams.length).toBe(5);
       const slugs = staticParams.map((p) => p.market);
 
       for (const m of PRESET_MARKETS) {
@@ -412,9 +413,9 @@ describe("Empirical Challenger M4.1: Market Routing & Tenor Metadata Challenge S
       }
     });
 
-    it("6.2 verifies marketsGenerateStaticParams produces exact bijective mapping to all 4 canonical markets", async () => {
+    it("6.2 verifies marketsGenerateStaticParams produces exact bijective mapping to all canonical markets", async () => {
       const staticParams = await marketsGenerateStaticParams();
-      expect(staticParams.length).toBe(4);
+      expect(staticParams.length).toBe(5);
       const ids = staticParams.map((p) => p.id);
 
       for (const m of PRESET_MARKETS) {

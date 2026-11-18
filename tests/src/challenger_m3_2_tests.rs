@@ -582,6 +582,7 @@ fn test_adversarial_pause_gating_complete_mutation_freeze_and_read_availability(
         Err(Ok(ContractError::ContractPaused))
     );
 
+    let dl = f.env.ledger().timestamp() + 3600;
     // 3. rollover_to_pt
     assert_eq!(
         f.factory_client.try_rollover_to_pt(
@@ -591,6 +592,7 @@ fn test_adversarial_pause_gating_complete_mutation_freeze_and_read_availability(
             &f.pool_90d,
             &100_000_000,
             &1,
+            &dl,
         ),
         Err(Ok(ContractError::ContractPaused))
     );
@@ -604,6 +606,7 @@ fn test_adversarial_pause_gating_complete_mutation_freeze_and_read_availability(
             &f.pool_90d,
             &100_000_000,
             &1,
+            &dl,
         ),
         Err(Ok(ContractError::ContractPaused))
     );
@@ -671,6 +674,8 @@ fn test_adversarial_rollover_authorization_and_sanity_rejections() {
     let dummy_pool = Address::generate(&f.env);
     let user_amount = 50_000_000i128;
 
+    let dl = f.env.ledger().timestamp() + 3600;
+
     // 1. Unregistered source pool reverts with MarketNotFound
     assert_eq!(
         f.factory_client.try_rollover_to_pt(
@@ -680,6 +685,7 @@ fn test_adversarial_rollover_authorization_and_sanity_rejections() {
             &f.pool_90d,
             &user_amount,
             &1,
+            &dl,
         ),
         Err(Ok(ContractError::MarketNotFound))
     );
@@ -693,6 +699,7 @@ fn test_adversarial_rollover_authorization_and_sanity_rejections() {
             &dummy_pool,
             &user_amount,
             &1,
+            &dl,
         ),
         Err(Ok(ContractError::MarketNotFound))
     );
@@ -700,12 +707,12 @@ fn test_adversarial_rollover_authorization_and_sanity_rejections() {
     // 3. Zero or negative pt_amount reverts with ZeroAmount
     assert_eq!(
         f.factory_client
-            .try_rollover_to_pt(&f.user, &f.user, &f.pool_30d, &f.pool_90d, &0, &1,),
+            .try_rollover_to_pt(&f.user, &f.user, &f.pool_30d, &f.pool_90d, &0, &1, &dl),
         Err(Ok(ContractError::ZeroAmount))
     );
     assert_eq!(
         f.factory_client
-            .try_rollover_to_pt(&f.user, &f.user, &f.pool_30d, &f.pool_90d, &-1000, &1,),
+            .try_rollover_to_pt(&f.user, &f.user, &f.pool_30d, &f.pool_90d, &-1000, &1, &dl),
         Err(Ok(ContractError::ZeroAmount))
     );
 
@@ -718,6 +725,7 @@ fn test_adversarial_rollover_authorization_and_sanity_rejections() {
             &f.pool_90d,
             &user_amount,
             &-1,
+            &dl,
         ),
         Err(Ok(ContractError::ZeroAmount))
     );
@@ -731,6 +739,7 @@ fn test_adversarial_rollover_authorization_and_sanity_rejections() {
             &f.pool_30d,
             &user_amount,
             &1,
+            &dl,
         ),
         Err(Ok(ContractError::IdenticalAddresses))
     );
@@ -744,12 +753,14 @@ fn test_adversarial_rollover_authorization_and_sanity_rejections() {
             &f.pool_90d,
             &user_amount,
             &1,
+            &dl,
         ),
         Err(Ok(ContractError::MarketNotYetMatured))
     );
 
     // 7. Advance time past both 30D and 90D -> Target already matured reverts with MarketAlreadyMatured
     f.env.ledger().set_timestamp(f.maturity_90d + 100);
+    let dl2 = f.env.ledger().timestamp() + 3600;
     assert_eq!(
         f.factory_client.try_rollover_to_pt(
             &f.user,
@@ -758,6 +769,7 @@ fn test_adversarial_rollover_authorization_and_sanity_rejections() {
             &f.pool_90d,
             &user_amount,
             &1,
+            &dl2,
         ),
         Err(Ok(ContractError::MarketAlreadyMatured))
     );
@@ -826,13 +838,15 @@ fn test_adversarial_atomic_rollback_on_insufficient_pt_balance() {
     f.sy_usdc_client
         .deposit(&f.user, &f.user, &initial_user_balance);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user, &f.user, &initial_user_balance);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user, &f.user, &initial_user_balance, &dl1);
 
     let pt_30d_client = PrivilegedTokenClient::new(&f.env, &f.pt_30d);
     assert_eq!(pt_30d_client.balance(&f.user), initial_user_balance);
 
     // Advance time past 30D maturity
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // User attempts to rollover 100_000_000 PT (has only 50_000_000)
     let excessive_amount = 100_000_000i128;
@@ -843,6 +857,7 @@ fn test_adversarial_atomic_rollback_on_insufficient_pt_balance() {
         &f.pool_90d,
         &excessive_amount,
         &1,
+        &dl2,
     );
 
     // Must fail due to insufficient PT in source pool

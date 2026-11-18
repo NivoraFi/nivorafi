@@ -20,7 +20,6 @@ import {
   AssetCategory,
   deriveMarketStatus,
   filterAndSortMarkets,
-  getMarketBaselineMetrics,
   getMarketCategory,
   getMarketUnderlyingApy,
   MarketDefinition,
@@ -280,28 +279,31 @@ export function MarketExplorerTable({
               filteredAndSortedMarkets.map((m) => {
                 const status = deriveMarketStatus(m.maturity, nowSeconds);
                 const isMatured = status === "MATURED";
-                const metrics = {
-                  ...getMarketBaselineMetrics(m, nowSeconds),
-                  ...marketMetrics[m.id],
-                };
+                const metrics = marketMetrics[m.id];
+                const isHydrated = Boolean(metrics && !metrics.isLoading);
+                const isSlender = m.sySymbol === "sy-sUSDC";
 
-                const impliedApy = isMatured ? 0 : metrics.impliedApyPct;
+                const impliedApy = isMatured ? 0 : (metrics?.impliedApyPct ?? 0);
                 const underlyingApy = getMarketUnderlyingApy(m);
-                const blendRate = metrics.blendRate ?? 1.001;
-                const tvlUsd = metrics.tvlUsd;
-                const ptReserve =
-                  typeof metrics.ptReserve === "bigint"
-                    ? Number(metrics.ptReserve) / 1e7
-                    : Number(metrics.ptReserve);
-                const syReserve =
-                  typeof metrics.syReserve === "bigint"
-                    ? Number(metrics.syReserve) / 1e7
-                    : Number(metrics.syReserve);
+                const blendRate =
+                  isHydrated && typeof metrics?.blendRate === "number" && metrics.blendRate > 0
+                    ? metrics.blendRate
+                    : null;
+                const tvlUsd = metrics?.tvlUsd ?? 0;
+                const ptReserve = metrics?.ptReserve ? Number(metrics.ptReserve) / 1e7 : 0;
+                const syReserve = metrics?.syReserve ? Number(metrics.syReserve) / 1e7 : 0;
 
-                // Yield math & prices
-                const ptPrice = isMatured ? 1.0 : metrics.ptPriceInSy;
-                const ytPrice = Math.max(0.0001, 1 - ptPrice);
-                const ytLeverage = ytPrice > 0 ? Math.round(1 / ytPrice) : 45;
+                // Yield math & prices (honest zero/null when unhydrated)
+                const ptPrice = isMatured
+                  ? 1.0
+                  : isHydrated && typeof metrics?.ptPriceInSy === "number" && metrics.ptPriceInSy > 0
+                  ? metrics.ptPriceInSy
+                  : null;
+                const ytPrice = ptPrice !== null ? Math.max(0, 1 - ptPrice) : null;
+                const ytLeverage =
+                  !isMatured && ytPrice !== null && ytPrice > 0
+                    ? Math.round(1 / ytPrice)
+                    : null;
 
                 const maturityDate = new Date(m.maturity * 1000).toISOString().split("T")[0];
                 const daysRemaining = Math.max(0, Math.ceil((m.maturity - nowSeconds) / 86400));
@@ -368,15 +370,15 @@ export function MarketExplorerTable({
                       </div>
                     </td>
 
-                    {/* Column 3: Underlying APY (Blend) */}
+                    {/* Column 3: Underlying APY (Blend / Slender) */}
                     <td className="py-4 px-4 align-middle">
                       <div className="flex flex-col gap-0.5">
                         <span className="font-semibold text-ink">
                           <span className="tabular-mono font-mono">{underlyingApy.toFixed(2)}%</span> Variable
                         </span>
                         <span className="text-xs text-ink-muted inline-flex items-center gap-1">
-                          <TokenIcon symbol="BLEND" size="xs" />
-                          <span>bRate: <span className="tabular-mono font-mono">{blendRate.toFixed(4)}</span></span>
+                          <TokenIcon symbol={isSlender ? m.asset.code : "BLEND"} size="xs" />
+                          <span>{isSlender ? "Slender" : "bRate"}: <span className="tabular-mono font-mono">{blendRate !== null ? blendRate.toFixed(4) : "--"}</span></span>
                         </span>
                       </div>
                     </td>
@@ -385,7 +387,7 @@ export function MarketExplorerTable({
                     <td className="py-4 px-4 align-middle">
                       <div className="flex flex-col gap-0.5">
                         <span className="tabular-mono font-mono font-bold text-sm text-accent">
-                          {impliedApy.toFixed(2)}%
+                          {isHydrated || isMatured ? `${impliedApy.toFixed(2)}%` : "--"}
                         </span>
                         <span className="text-[11px] text-ink-muted">
                           AMM Rate
@@ -398,10 +400,10 @@ export function MarketExplorerTable({
                       <div className="flex flex-col gap-1 items-start">
                         <span className="inline-flex items-center gap-1 rounded-full bg-positive-soft border border-positive/30 px-2.5 py-0.5 text-xs font-semibold text-positive">
                           <TrendingUp className="h-3 w-3" />
-                          <span>+<span className="tabular-mono font-mono">{impliedApy.toFixed(2)}%</span> Fixed</span>
+                          <span>{isHydrated || isMatured ? <>+<span className="tabular-mono font-mono">{impliedApy.toFixed(2)}%</span> Fixed</> : <>-- Fixed</>}</span>
                         </span>
                         <span className="text-[11px] text-ink-muted">
-                          PT: <span className="tabular-mono font-mono">{ptPrice.toFixed(4)}</span> SY
+                          PT: <span className="tabular-mono font-mono">{ptPrice !== null ? ptPrice.toFixed(4) : "--"}</span> SY
                         </span>
                       </div>
                     </td>
@@ -411,10 +413,10 @@ export function MarketExplorerTable({
                       <div className="flex flex-col gap-1 items-start">
                         <span className="inline-flex items-center gap-1 rounded-full bg-accent-soft border border-accent/30 px-2.5 py-0.5 text-xs font-semibold text-accent">
                           <Sparkles className="h-3 w-3" />
-                          <span>~<span className="tabular-mono font-mono">{ytLeverage}</span>x Exposure</span>
+                          <span>{ytLeverage !== null ? <>~<span className="tabular-mono font-mono">{ytLeverage}</span>x Exposure</> : <>-- Exposure</>}</span>
                         </span>
                         <span className="text-[11px] text-ink-muted">
-                          YT: <span className="tabular-mono font-mono">{ytPrice.toFixed(4)}</span> SY
+                          YT: <span className="tabular-mono font-mono">{ytPrice !== null ? ytPrice.toFixed(4) : "--"}</span> SY
                         </span>
                       </div>
                     </td>

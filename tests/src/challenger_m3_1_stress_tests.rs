@@ -291,18 +291,20 @@ fn test_stress_haircut_0_percent_full_solvency_rollover_pt_and_py() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     // 2. LP provides liquidity in 90D pool
     let lp_seed = 6_000_000_000i128;
     f.usdc_admin_client.mint(&f.admin, &lp_seed);
     f.sy_usdc_client.deposit(&f.admin, &f.admin, &lp_seed);
     let pool_90d_client = YieldMarketClient::new(&f.env, &f.pool_90d);
-    pool_90d_client.mint_py(&f.admin, &f.admin, &3_000_000_000);
+    pool_90d_client.mint_py(&f.admin, &f.admin, &3_000_000_000, &dl1);
     pool_90d_client.add_liquidity(&f.admin, &f.admin, &3_000_000_000, &2_000_000_000, &1);
 
     // 3. Advance past 30D maturity (day 35)
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // Haircut is 0% (vault has 100% of PT supply)
     // Rollover 50 USDC to PT, 50 USDC to PY
@@ -318,6 +320,7 @@ fn test_stress_haircut_0_percent_full_solvency_rollover_pt_and_py() {
         &f.pool_90d,
         &50_000_000,
         &1,
+        &dl2,
     );
     assert_eq!(sy_payout_pt, 50_000_000);
     assert!(pt_out > 0);
@@ -332,6 +335,7 @@ fn test_stress_haircut_0_percent_full_solvency_rollover_pt_and_py() {
         &f.pool_90d,
         &50_000_000,
         &50_000_000,
+        &dl2,
     );
     assert_eq!(sy_payout_py, 50_000_000);
     assert_eq!(py_out, 50_000_000);
@@ -348,13 +352,15 @@ fn test_stress_haircut_10_percent_proportional_propagation() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     // 10% bad debt: burn 10,000,000 SY from 30D pool vault
     f.sy_usdc_client.burn(&f.pool_30d, &10_000_000);
     assert_eq!(f.sy_usdc_client.balance(&f.pool_30d), 90_000_000);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // Slippage violation test for rollover_to_py: min_new_shares 90_000_001 must fail
     assert_eq!(
@@ -365,6 +371,7 @@ fn test_stress_haircut_10_percent_proportional_propagation() {
             &f.pool_90d,
             &user_amount,
             &90_000_001,
+            &dl2,
         ),
         Err(Ok(ContractError::SlippageExceeded))
     );
@@ -377,6 +384,7 @@ fn test_stress_haircut_10_percent_proportional_propagation() {
         &f.pool_90d,
         &user_amount,
         &90_000_000,
+        &dl2,
     );
     assert_eq!(sy_payout, 90_000_000);
     assert_eq!(py_minted, 90_000_000);
@@ -391,13 +399,15 @@ fn test_stress_haircut_25_percent_proportional_propagation() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     // 25% bad debt: burn 25,000,000 SY from 30D pool vault
     f.sy_usdc_client.burn(&f.pool_30d, &25_000_000);
     assert_eq!(f.sy_usdc_client.balance(&f.pool_30d), 75_000_000);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // 25% haircut means 75% recovery
     assert_eq!(
@@ -408,6 +418,7 @@ fn test_stress_haircut_25_percent_proportional_propagation() {
             &f.pool_90d,
             &user_amount,
             &75_000_001,
+            &dl2,
         ),
         Err(Ok(ContractError::SlippageExceeded))
     );
@@ -419,6 +430,7 @@ fn test_stress_haircut_25_percent_proportional_propagation() {
         &f.pool_90d,
         &user_amount,
         &75_000_000,
+        &dl2,
     );
     assert_eq!(sy_payout, 75_000_000);
     assert_eq!(py_minted, 75_000_000);
@@ -433,13 +445,15 @@ fn test_stress_haircut_50_percent_severe_bad_debt() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     // 50% bad debt: burn 50,000,000 SY from 30D pool vault
     f.sy_usdc_client.burn(&f.pool_30d, &50_000_000);
     assert_eq!(f.sy_usdc_client.balance(&f.pool_30d), 50_000_000);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     assert_eq!(
         f.factory_client.try_rollover_to_py(
@@ -449,6 +463,7 @@ fn test_stress_haircut_50_percent_severe_bad_debt() {
             &f.pool_90d,
             &user_amount,
             &50_000_001,
+            &dl2,
         ),
         Err(Ok(ContractError::SlippageExceeded))
     );
@@ -460,6 +475,7 @@ fn test_stress_haircut_50_percent_severe_bad_debt() {
         &f.pool_90d,
         &user_amount,
         &50_000_000,
+        &dl2,
     );
     assert_eq!(sy_payout, 50_000_000);
     assert_eq!(py_minted, 50_000_000);
@@ -474,13 +490,15 @@ fn test_stress_haircut_99_percent_extreme_haircut() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     // 99% bad debt: burn 99,000,000 SY from 30D pool vault, leaving only 1,000,000 SY
     f.sy_usdc_client.burn(&f.pool_30d, &99_000_000);
     assert_eq!(f.sy_usdc_client.balance(&f.pool_30d), 1_000_000);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // Only 1% (1,000,000 SY) remains
     assert_eq!(
@@ -491,6 +509,7 @@ fn test_stress_haircut_99_percent_extreme_haircut() {
             &f.pool_90d,
             &user_amount,
             &1_000_001,
+            &dl2,
         ),
         Err(Ok(ContractError::SlippageExceeded))
     );
@@ -502,6 +521,7 @@ fn test_stress_haircut_99_percent_extreme_haircut() {
         &f.pool_90d,
         &user_amount,
         &1_000_000,
+        &dl2,
     );
     assert_eq!(sy_payout, 1_000_000);
     assert_eq!(py_minted, 1_000_000);
@@ -516,13 +536,15 @@ fn test_stress_haircut_100_percent_total_vault_drain_atomic_reversion() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     // 100% bad debt: burn entire 100,000,000 SY from vault
     f.sy_usdc_client.burn(&f.pool_30d, &user_amount);
     assert_eq!(f.sy_usdc_client.balance(&f.pool_30d), 0);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // Both rollover_to_pt and rollover_to_py must reject with ZeroAmount
     let res_py = f.factory_client.try_rollover_to_py(
@@ -532,6 +554,7 @@ fn test_stress_haircut_100_percent_total_vault_drain_atomic_reversion() {
         &f.pool_90d,
         &user_amount,
         &1,
+        &dl2,
     );
     assert_eq!(res_py, Err(Ok(ContractError::ZeroAmount)));
 
@@ -542,6 +565,7 @@ fn test_stress_haircut_100_percent_total_vault_drain_atomic_reversion() {
         &f.pool_90d,
         &user_amount,
         &1,
+        &dl2,
     );
     assert_eq!(res_pt, Err(Ok(ContractError::ZeroAmount)));
 
@@ -566,11 +590,12 @@ fn test_stress_multi_user_haircut_order_invariance() {
     f.usdc_admin_client.mint(&f.user1, &amount_user1);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &amount_user1);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &amount_user1);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &amount_user1, &dl1);
 
     f.usdc_admin_client.mint(&f.user2, &amount_user2);
     f.sy_usdc_client.deposit(&f.user2, &f.user2, &amount_user2);
-    pool_30d_client.mint_py(&f.user2, &f.user2, &amount_user2);
+    pool_30d_client.mint_py(&f.user2, &f.user2, &amount_user2, &dl1);
 
     let pt_30d_client = PrivilegedTokenClient::new(&f.env, &f.pt_30d);
     assert_eq!(pt_30d_client.total_supply(), total_amount);
@@ -580,6 +605,7 @@ fn test_stress_multi_user_haircut_order_invariance() {
     assert_eq!(f.sy_usdc_client.balance(&f.pool_30d), 70_000_000);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // User1 rolls over first (60M PT * 0.7 = 42M SY payout)
     let (payout1, py1) = f.factory_client.rollover_to_py(
@@ -589,6 +615,7 @@ fn test_stress_multi_user_haircut_order_invariance() {
         &f.pool_90d,
         &amount_user1,
         &42_000_000,
+        &dl2,
     );
     assert_eq!(payout1, 42_000_000);
     assert_eq!(py1, 42_000_000);
@@ -605,6 +632,7 @@ fn test_stress_multi_user_haircut_order_invariance() {
         &f.pool_90d,
         &amount_user2,
         &28_000_000,
+        &dl2,
     );
     assert_eq!(payout2, 28_000_000);
     assert_eq!(py2, 28_000_000);
@@ -627,17 +655,19 @@ fn test_stress_atomic_rollback_on_pt_slippage_violation() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     // Provision 90D liquidity
     let lp_seed = 6_000_000_000i128;
     f.usdc_admin_client.mint(&f.admin, &lp_seed);
     f.sy_usdc_client.deposit(&f.admin, &f.admin, &lp_seed);
     let pool_90d_client = YieldMarketClient::new(&f.env, &f.pool_90d);
-    pool_90d_client.mint_py(&f.admin, &f.admin, &3_000_000_000);
+    pool_90d_client.mint_py(&f.admin, &f.admin, &3_000_000_000, &dl1);
     pool_90d_client.add_liquidity(&f.admin, &f.admin, &3_000_000_000, &2_000_000_000, &1);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     let initial_user_pt = 100_000_000i128;
     let initial_pool30_sy = f.sy_usdc_client.balance(&f.pool_30d);
@@ -652,6 +682,7 @@ fn test_stress_atomic_rollback_on_pt_slippage_violation() {
         &f.pool_90d,
         &user_amount,
         &impossible_min,
+        &dl2,
     );
     assert_eq!(res, Err(Ok(ContractError::SlippageExceeded)));
 
@@ -682,9 +713,11 @@ fn test_stress_atomic_rollback_on_insufficient_pt_balance() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // User attempts to rollover 100 USDC PT (more than balance)
     let res = f.factory_client.try_rollover_to_py(
@@ -694,6 +727,7 @@ fn test_stress_atomic_rollback_on_insufficient_pt_balance() {
         &f.pool_90d,
         &100_000_000,
         &1,
+        &dl2,
     );
     assert_eq!(res, Err(Ok(ContractError::InsufficientBalance)));
 
@@ -711,7 +745,8 @@ fn test_stress_atomic_rollback_on_premature_source_maturity() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl);
 
     // Time is still BEFORE 30D maturity
     let res = f.factory_client.try_rollover_to_pt(
@@ -721,6 +756,7 @@ fn test_stress_atomic_rollback_on_premature_source_maturity() {
         &f.pool_90d,
         &user_amount,
         &1,
+        &dl,
     );
     assert_eq!(res, Err(Ok(ContractError::MarketNotYetMatured)));
 
@@ -737,10 +773,12 @@ fn test_stress_atomic_rollback_on_expired_target_maturity() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     // Fast-forward beyond 90D maturity
     f.env.ledger().set_timestamp(f.maturity_90d + 10 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // Rolling over to an already-matured target pool must fail
     let res = f.factory_client.try_rollover_to_pt(
@@ -750,6 +788,7 @@ fn test_stress_atomic_rollback_on_expired_target_maturity() {
         &f.pool_90d,
         &user_amount,
         &1,
+        &dl2,
     );
     assert_eq!(res, Err(Ok(ContractError::MarketAlreadyMatured)));
 
@@ -766,9 +805,11 @@ fn test_stress_atomic_rollback_on_identical_source_and_target() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     let res = f.factory_client.try_rollover_to_pt(
         &f.user1,
@@ -777,6 +818,7 @@ fn test_stress_atomic_rollback_on_identical_source_and_target() {
         &f.pool_30d,
         &user_amount,
         &1,
+        &dl2,
     );
     assert_eq!(res, Err(Ok(ContractError::IdenticalAddresses)));
 }
@@ -787,6 +829,7 @@ fn test_stress_atomic_rollback_on_unregistered_markets() {
     let fake_pool = Address::generate(&f.env);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl = f.env.ledger().timestamp() + 3600;
 
     let res1 = f.factory_client.try_rollover_to_pt(
         &f.user1,
@@ -795,6 +838,7 @@ fn test_stress_atomic_rollback_on_unregistered_markets() {
         &f.pool_90d,
         &100_000,
         &1,
+        &dl,
     );
     assert_eq!(res1, Err(Ok(ContractError::MarketNotFound)));
 
@@ -805,6 +849,7 @@ fn test_stress_atomic_rollback_on_unregistered_markets() {
         &fake_pool,
         &100_000,
         &1,
+        &dl,
     );
     assert_eq!(res2, Err(Ok(ContractError::MarketNotFound)));
 }
@@ -813,10 +858,11 @@ fn test_stress_atomic_rollback_on_unregistered_markets() {
 fn test_stress_atomic_rollback_on_zero_and_negative_amounts() {
     let f = setup_challenger_m3_fixture();
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl = f.env.ledger().timestamp() + 3600;
 
     assert_eq!(
         f.factory_client
-            .try_rollover_to_pt(&f.user1, &f.user1, &f.pool_30d, &f.pool_90d, &0, &1,),
+            .try_rollover_to_pt(&f.user1, &f.user1, &f.pool_30d, &f.pool_90d, &0, &1, &dl),
         Err(Ok(ContractError::ZeroAmount))
     );
 
@@ -828,6 +874,7 @@ fn test_stress_atomic_rollback_on_zero_and_negative_amounts() {
             &f.pool_90d,
             &-100,
             &1,
+            &dl,
         ),
         Err(Ok(ContractError::ZeroAmount))
     );
@@ -840,13 +887,14 @@ fn test_stress_atomic_rollback_on_zero_and_negative_amounts() {
             &f.pool_90d,
             &100,
             &-1,
+            &dl,
         ),
         Err(Ok(ContractError::ZeroAmount))
     );
 
     assert_eq!(
         f.factory_client
-            .try_rollover_to_py(&f.user1, &f.user1, &f.pool_30d, &f.pool_90d, &0, &1,),
+            .try_rollover_to_py(&f.user1, &f.user1, &f.pool_30d, &f.pool_90d, &0, &1, &dl),
         Err(Ok(ContractError::ZeroAmount))
     );
 
@@ -858,6 +906,7 @@ fn test_stress_atomic_rollback_on_zero_and_negative_amounts() {
             &f.pool_90d,
             &100,
             &-1,
+            &dl,
         ),
         Err(Ok(ContractError::ZeroAmount))
     );
@@ -877,7 +926,8 @@ fn test_stress_consecutive_four_stage_rollovers_30d_90d_180d_360d() {
     f.sy_usdc_client
         .deposit(&f.user1, &f.user1, &initial_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &initial_amount);
+    let dl0 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &initial_amount, &dl0);
 
     // 2. Provision liquidity in 90D, 180D, 360D pools
     let lp_seed = 30_000_000_000i128;
@@ -886,7 +936,7 @@ fn test_stress_consecutive_four_stage_rollovers_30d_90d_180d_360d() {
 
     let seed_pool = |pool_addr: &Address| {
         let pool_c = YieldMarketClient::new(&f.env, pool_addr);
-        pool_c.mint_py(&f.admin, &f.admin, &4_000_000_000);
+        pool_c.mint_py(&f.admin, &f.admin, &4_000_000_000, &dl0);
         pool_c.add_liquidity(&f.admin, &f.admin, &4_000_000_000, &3_000_000_000, &1);
     };
     seed_pool(&f.pool_90d);
@@ -901,6 +951,7 @@ fn test_stress_consecutive_four_stage_rollovers_30d_90d_180d_360d() {
 
     // STAGE 1: Day 35 -> 30D matures -> rollover to 90D PT
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl1 = f.env.ledger().timestamp() + 3600;
     let (sy1, pt_90d_amt) = f.factory_client.rollover_to_pt(
         &f.user1,
         &f.user1,
@@ -908,6 +959,7 @@ fn test_stress_consecutive_four_stage_rollovers_30d_90d_180d_360d() {
         &f.pool_90d,
         &initial_amount,
         &1,
+        &dl1,
     );
     assert_eq!(sy1, initial_amount);
     assert!(pt_90d_amt > 0);
@@ -917,6 +969,7 @@ fn test_stress_consecutive_four_stage_rollovers_30d_90d_180d_360d() {
 
     // STAGE 2: Day 95 -> 90D matures -> rollover to 180D PT
     f.env.ledger().set_timestamp(f.maturity_90d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
     let (sy2, pt_180d_amt) = f.factory_client.rollover_to_pt(
         &f.user1,
         &f.user1,
@@ -924,6 +977,7 @@ fn test_stress_consecutive_four_stage_rollovers_30d_90d_180d_360d() {
         &f.pool_180d,
         &pt_90d_amt,
         &1,
+        &dl2,
     );
     assert_eq!(sy2, pt_90d_amt);
     assert!(pt_180d_amt > 0);
@@ -933,6 +987,7 @@ fn test_stress_consecutive_four_stage_rollovers_30d_90d_180d_360d() {
 
     // STAGE 3: Day 185 -> 180D matures -> rollover to 360D PY (minting PT + YT)
     f.env.ledger().set_timestamp(f.maturity_180d + 5 * 86400);
+    let dl3 = f.env.ledger().timestamp() + 3600;
     let (sy3, py_360d_amt) = f.factory_client.rollover_to_py(
         &f.user1,
         &f.user1,
@@ -940,6 +995,7 @@ fn test_stress_consecutive_four_stage_rollovers_30d_90d_180d_360d() {
         &f.pool_360d,
         &pt_180d_amt,
         &pt_180d_amt,
+        &dl3,
     );
     assert_eq!(sy3, pt_180d_amt);
     assert_eq!(py_360d_amt, pt_180d_amt);
@@ -969,16 +1025,18 @@ fn test_stress_rollover_with_third_party_receiver() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     let lp_seed = 6_000_000_000i128;
     f.usdc_admin_client.mint(&f.admin, &lp_seed);
     f.sy_usdc_client.deposit(&f.admin, &f.admin, &lp_seed);
     let pool_90d_client = YieldMarketClient::new(&f.env, &f.pool_90d);
-    pool_90d_client.mint_py(&f.admin, &f.admin, &3_000_000_000);
+    pool_90d_client.mint_py(&f.admin, &f.admin, &3_000_000_000, &dl1);
     pool_90d_client.add_liquidity(&f.admin, &f.admin, &3_000_000_000, &2_000_000_000, &1);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // User1 rolls over to PT, designating 'receiver' as beneficiary
     let pt_30d_client = PrivilegedTokenClient::new(&f.env, &f.pt_30d);
@@ -991,6 +1049,7 @@ fn test_stress_rollover_with_third_party_receiver() {
         &f.pool_90d,
         &user_amount,
         &1,
+        &dl2,
     );
 
     assert_eq!(sy_payout, user_amount);
@@ -1013,9 +1072,11 @@ fn test_stress_rollover_to_py_with_third_party_receiver() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     let pt_30d_client = PrivilegedTokenClient::new(&f.env, &f.pt_30d);
     let pt_90d_client = PrivilegedTokenClient::new(&f.env, &f.pt_90d);
@@ -1029,6 +1090,7 @@ fn test_stress_rollover_to_py_with_third_party_receiver() {
         &f.pool_90d,
         &user_amount,
         &user_amount,
+        &dl2,
     );
 
     assert_eq!(sy_payout, user_amount);
@@ -1056,7 +1118,8 @@ fn test_stress_factory_stray_token_sweep_to_receiver() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     // Simulate accidental transfer of 777_777 SY directly to factory router
     let stray_sy = 777_777i128;
@@ -1070,6 +1133,7 @@ fn test_stress_factory_stray_token_sweep_to_receiver() {
     );
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // Initial receiver SY balance is 0
     assert_eq!(f.sy_usdc_client.balance(&f.receiver), 0);
@@ -1082,6 +1146,7 @@ fn test_stress_factory_stray_token_sweep_to_receiver() {
         &f.pool_90d,
         &user_amount,
         &user_amount,
+        &dl2,
     );
 
     // Residual SY was swept to receiver, leaving factory with 0
@@ -1101,9 +1166,11 @@ fn test_stress_pause_guardian_rollover_rejection_and_atomic_resume() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // Guardian pauses factory
     f.factory_client.pause(&f.guardian);
@@ -1118,6 +1185,7 @@ fn test_stress_pause_guardian_rollover_rejection_and_atomic_resume() {
             &f.pool_90d,
             &user_amount,
             &1,
+            &dl2,
         ),
         Err(Ok(ContractError::ContractPaused))
     );
@@ -1130,6 +1198,7 @@ fn test_stress_pause_guardian_rollover_rejection_and_atomic_resume() {
             &f.pool_90d,
             &user_amount,
             &1,
+            &dl2,
         ),
         Err(Ok(ContractError::ContractPaused))
     );
@@ -1146,6 +1215,7 @@ fn test_stress_pause_guardian_rollover_rejection_and_atomic_resume() {
         &f.pool_90d,
         &user_amount,
         &user_amount,
+        &dl2,
     );
     assert_eq!(sy, user_amount);
     assert_eq!(py, user_amount);
@@ -1165,16 +1235,18 @@ fn test_stress_exact_1_stroop_slippage_precision_rollover_to_pt() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     let lp_seed = 6_000_000_000i128;
     f.usdc_admin_client.mint(&f.admin, &lp_seed);
     f.sy_usdc_client.deposit(&f.admin, &f.admin, &lp_seed);
     let pool_90d_client = YieldMarketClient::new(&f.env, &f.pool_90d);
-    pool_90d_client.mint_py(&f.admin, &f.admin, &3_000_000_000);
+    pool_90d_client.mint_py(&f.admin, &f.admin, &3_000_000_000, &dl1);
     pool_90d_client.add_liquidity(&f.admin, &f.admin, &3_000_000_000, &2_000_000_000, &1);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // 1. Dry-run query: what would exact_sy_for_pt produce?
     // Using min_target_pt = 1 to find out actual pt_out
@@ -1186,6 +1258,7 @@ fn test_stress_exact_1_stroop_slippage_precision_rollover_to_pt() {
         &f.pool_90d,
         &user_amount,
         &500_000_000,
+        &dl2,
     );
     assert_eq!(fail_res, Err(Ok(ContractError::SlippageExceeded)));
 
@@ -1201,6 +1274,7 @@ fn test_stress_exact_1_stroop_slippage_precision_rollover_to_pt() {
         &f.pool_90d,
         &user_amount,
         &1,
+        &dl2,
     );
     assert_eq!(sy_payout, user_amount);
     assert!(pt_out > 0);
@@ -1216,7 +1290,8 @@ fn test_stress_rollover_target_pool_amm_proportion_rejection_and_atomic_rollback
     f.usdc_admin_client.mint(&f.admin, &lp_seed);
     f.sy_usdc_client.deposit(&f.admin, &f.admin, &lp_seed);
     let pool_90d_client = YieldMarketClient::new(&f.env, &f.pool_90d);
-    pool_90d_client.mint_py(&f.admin, &f.admin, &100_000_000);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_90d_client.mint_py(&f.admin, &f.admin, &100_000_000, &dl1);
     pool_90d_client.add_liquidity(&f.admin, &f.admin, &100_000_000, &80_000_000, &1);
 
     // User has a massive 50,000 USDC position in 30D pool
@@ -1224,9 +1299,10 @@ fn test_stress_rollover_target_pool_amm_proportion_rejection_and_atomic_rollback
     f.usdc_admin_client.mint(&f.user1, &massive_user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &massive_user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &massive_user_amount);
+    pool_30d_client.mint_py(&f.user1, &f.user1, &massive_user_amount, &dl1);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // Attempting to swap 50,000 USDC into a pool with 100 USDC liquidity must fail due to
     // insufficient liquidity / proportion boundaries in target AMM
@@ -1237,6 +1313,7 @@ fn test_stress_rollover_target_pool_amm_proportion_rejection_and_atomic_rollback
         &f.pool_90d,
         &massive_user_amount,
         &1,
+        &dl2,
     );
     assert!(res.is_err(), "Massive swap beyond AMM capacity must fail");
 
@@ -1254,9 +1331,11 @@ fn test_stress_cross_asset_rollover_isolation_atomic_rollback() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // Rollover from USDC to XLM pool must reject with InvalidAsset
     let res_pt = f.factory_client.try_rollover_to_pt(
@@ -1266,6 +1345,7 @@ fn test_stress_cross_asset_rollover_isolation_atomic_rollback() {
         &f.pool_xlm_90d,
         &user_amount,
         &1,
+        &dl2,
     );
     assert_eq!(res_pt, Err(Ok(ContractError::InvalidAsset)));
 
@@ -1276,6 +1356,7 @@ fn test_stress_cross_asset_rollover_isolation_atomic_rollback() {
         &f.pool_xlm_90d,
         &user_amount,
         &1,
+        &dl2,
     );
     assert_eq!(res_py, Err(Ok(ContractError::InvalidAsset)));
 
@@ -1292,9 +1373,11 @@ fn test_stress_unauthorized_attacker_cannot_rollover_victim_tokens() {
     f.usdc_admin_client.mint(&f.user1, &victim_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &victim_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &victim_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &victim_amount, &dl1);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // Attacker calls rollover_to_pt with attacker as caller, trying to burn victim's tokens or get target PT
     let res = f.factory_client.try_rollover_to_pt(
@@ -1304,6 +1387,7 @@ fn test_stress_unauthorized_attacker_cannot_rollover_victim_tokens() {
         &f.pool_90d,
         &victim_amount,
         &1,
+        &dl2,
     );
     assert_eq!(res, Err(Ok(ContractError::InsufficientBalance)));
 

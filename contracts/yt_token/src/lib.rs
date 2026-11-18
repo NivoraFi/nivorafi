@@ -14,6 +14,50 @@ mod test;
 #[contract]
 pub struct YieldToken;
 
+impl YieldToken {
+    fn init_internal(
+        env: &Env,
+        auth_caller: &Address,
+        admin: &Address,
+        market: &Address,
+        sy_contract: &Address,
+        name: &String,
+        symbol: &String,
+        decimals: u32,
+        maturity: u64,
+    ) -> Result<(), ContractError> {
+        if env.storage().instance().has(&DataKey::Initialized) {
+            return Err(ContractError::AlreadyInitialized);
+        }
+        auth_caller.require_auth();
+        if maturity <= env.ledger().timestamp() {
+            return Err(ContractError::InvalidMaturity);
+        }
+
+        env.storage().instance().set(&DataKey::Admin, admin);
+        env.storage().instance().set(&DataKey::Market, market);
+        env.storage()
+            .instance()
+            .set(&DataKey::SyContract, sy_contract);
+        env.storage().instance().set(&DataKey::Name, name);
+        env.storage().instance().set(&DataKey::Symbol, symbol);
+        env.storage().instance().set(&DataKey::Decimals, &decimals);
+        env.storage().instance().set(&DataKey::Maturity, &maturity);
+        env.storage().instance().set(&DataKey::TotalSupply, &0i128);
+        env.storage()
+            .instance()
+            .set(&DataKey::GlobalAccruedYield, &0i128);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalYieldWeight, &0i128);
+        env.storage().instance().set(&DataKey::IsSettled, &false);
+        env.storage().instance().set(&DataKey::Initialized, &true);
+
+        bump_instance_ttl(env, maturity);
+        Ok(())
+    }
+}
+
 #[contractimpl]
 #[allow(clippy::too_many_arguments)]
 impl YieldToken {
@@ -27,29 +71,103 @@ impl YieldToken {
         decimals: u32,
         maturity: u64,
     ) -> Result<(), ContractError> {
-        if env.storage().instance().has(&DataKey::Initialized) {
-            return Err(ContractError::AlreadyInitialized);
-        }
-        admin.require_auth();
-        if maturity <= env.ledger().timestamp() {
-            return Err(ContractError::InvalidMaturity);
-        }
+        Self::init_internal(
+            &env,
+            &admin,
+            &admin,
+            &market,
+            &sy_contract,
+            &name,
+            &symbol,
+            decimals,
+            maturity,
+        )
+    }
 
-        env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::Market, &market);
-        env.storage()
+    pub fn initialize_from_factory(
+        env: Env,
+        deployer: Address,
+        admin: Address,
+        market: Address,
+        sy_contract: Address,
+        name: String,
+        symbol: String,
+        decimals: u32,
+        maturity: u64,
+    ) -> Result<(), ContractError> {
+        Self::init_internal(
+            &env,
+            &deployer,
+            &admin,
+            &market,
+            &sy_contract,
+            &name,
+            &symbol,
+            decimals,
+            maturity,
+        )
+    }
+
+    fn current_py_index(env: &Env, update_storage: bool) -> Result<i128, ContractError> {
+        let is_settled: bool = env
+            .storage()
             .instance()
-            .set(&DataKey::SyContract, &sy_contract);
-        env.storage().instance().set(&DataKey::Name, &name);
-        env.storage().instance().set(&DataKey::Symbol, &symbol);
-        env.storage().instance().set(&DataKey::Decimals, &decimals);
-        env.storage().instance().set(&DataKey::Maturity, &maturity);
-        env.storage().instance().set(&DataKey::TotalSupply, &0i128);
-        env.storage().instance().set(&DataKey::IsSettled, &false);
-        env.storage().instance().set(&DataKey::Initialized, &true);
+            .get(&DataKey::IsSettled)
+            .unwrap_or(false);
+        if is_settled {
+            return Ok(env
+                .storage()
+                .instance()
+                .get(&DataKey::MaturityIndex)
+                .unwrap_or(common::fixed_point::SCALAR_9));
+        }
 
-        bump_instance_ttl(&env, maturity);
-        Ok(())
+        let sy_addr: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::SyContract)
+            .ok_or(ContractError::NotInitialized)?;
+        let sy_client = StandardizedYieldClient::new(env, &sy_addr);
+        let raw_rate = sy_client.exchange_rate();
+        if raw_rate <= 0 {
+            return Err(ContractError::BlendPoolError);
+        }
+
+        let prev_max: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LastKnownIndex)
+            .unwrap_or(0);
+        let effective_index = raw_rate.max(prev_max);
+
+        if update_storage {
+            if effective_index > prev_max {
+                env.storage()
+                    .instance()
+                    .set(&DataKey::LastKnownIndex, &effective_index);
+            }
+            let maturity: u64 = env
+                .storage()
+                .instance()
+                .get(&DataKey::Maturity)
+                .unwrap_or(0);
+            if env.ledger().timestamp() >= maturity {
+                env.storage()
+                    .instance()
+                    .set(&DataKey::MaturityIndex, &effective_index);
+                env.storage()
+                    .instance()
+                    .set(&DataKey::LastKnownIndex, &effective_index);
+                env.storage().instance().set(&DataKey::IsSettled, &true);
+                bump_instance_ttl(env, maturity);
+            }
+        }
+
+        Ok(effective_index)
+    }
+
+    pub fn get_py_index(env: Env) -> Result<i128, ContractError> {
+        Self::current_py_index(&env, false)
     }
 
     fn update_checkpoint(
@@ -62,41 +180,22 @@ impl YieldToken {
             .instance()
             .get(&DataKey::Maturity)
             .unwrap_or(0);
-        let is_settled: bool = env
-            .storage()
-            .instance()
-            .get(&DataKey::IsSettled)
-            .unwrap_or(false);
-
-        let effective_index = if is_settled {
-            env.storage()
-                .instance()
-                .get(&DataKey::MaturityIndex)
-                .unwrap_or(common::fixed_point::SCALAR_9)
-        } else {
-            let sy_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::SyContract)
-                .ok_or(ContractError::NotInitialized)?;
-            let sy_client = StandardizedYieldClient::new(env, &sy_addr);
-            let raw_rate = sy_client.exchange_rate();
-            if raw_rate <= 0 {
-                return Err(ContractError::BlendPoolError);
-            }
-
-            if env.ledger().timestamp() >= maturity {
-                env.storage()
-                    .instance()
-                    .set(&DataKey::MaturityIndex, &raw_rate);
-                env.storage().instance().set(&DataKey::IsSettled, &true);
-                bump_instance_ttl(env, maturity);
-            }
-            raw_rate
-        };
+        let effective_index = Self::current_py_index(env, true)?;
 
         let state_key = DataKey::UserYieldState(user.clone());
         let current_state: Option<UserYieldState> = env.storage().persistent().get(&state_key);
+
+        let (old_weight, old_unclaimed) = match &current_state {
+            Some(s) => {
+                let w = if s.yt_balance > 0 && s.last_index > 0 {
+                    common::fixed_point::wad_div(s.yt_balance, s.last_index)?
+                } else {
+                    0
+                };
+                (w, s.unclaimed_yield)
+            }
+            None => (0, 0),
+        };
 
         let user_state = match current_state {
             Some(mut state) => {
@@ -124,6 +223,40 @@ impl YieldToken {
                 unclaimed_yield: 0,
             },
         };
+
+        let new_weight = if user_state.yt_balance > 0 {
+            common::fixed_point::wad_div(user_state.yt_balance, effective_index)?
+        } else {
+            0
+        };
+
+        let global_accrued: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::GlobalAccruedYield)
+            .unwrap_or(0);
+        let delta_unclaimed = user_state
+            .unclaimed_yield
+            .checked_sub(old_unclaimed)
+            .ok_or(ContractError::MathOverflow)?;
+        let new_global_accrued = global_accrued
+            .checked_add(delta_unclaimed)
+            .ok_or(ContractError::MathOverflow)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::GlobalAccruedYield, &new_global_accrued);
+
+        let total_weight: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalYieldWeight)
+            .unwrap_or(0);
+        let new_total_weight = common::fixed_point::pos_sub(total_weight, old_weight)
+            .checked_add(new_weight)
+            .ok_or(ContractError::MathOverflow)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalYieldWeight, &new_total_weight);
 
         env.storage().persistent().set(&state_key, &user_state);
         bump_persistent_ttl(env, &state_key, maturity);
@@ -263,6 +396,17 @@ impl YieldToken {
         let payout = user_state.unclaimed_yield;
         user_state.unclaimed_yield = 0;
         env.storage().persistent().set(&state_key, &user_state);
+        if payout > 0 {
+            let global_accrued: i128 = env
+                .storage()
+                .instance()
+                .get(&DataKey::GlobalAccruedYield)
+                .unwrap_or(0);
+            env.storage().instance().set(
+                &DataKey::GlobalAccruedYield,
+                &common::fixed_point::pos_sub(global_accrued, payout),
+            );
+        }
         bump_persistent_ttl(&env, &state_key, maturity);
         bump_instance_ttl(&env, maturity);
         YieldClaimedEvent {
@@ -273,6 +417,93 @@ impl YieldToken {
         .publish(&env);
 
         Ok(payout)
+    }
+
+    /// Synchronizes maturity settlement from the YieldPool market contract.
+    /// Intentionally NOT gated by `check_not_paused` so paused settlement works.
+    pub fn settle_maturity(env: Env, maturity_index: i128) -> Result<i128, ContractError> {
+        let market: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Market)
+            .ok_or(ContractError::NotInitialized)?;
+        market.require_auth();
+
+        let maturity: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Maturity)
+            .ok_or(ContractError::NotInitialized)?;
+        if env.ledger().timestamp() < maturity {
+            return Err(ContractError::MarketNotYetMatured);
+        }
+        if maturity_index <= 0 {
+            return Err(ContractError::InvalidRate);
+        }
+
+        let is_settled: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::IsSettled)
+            .unwrap_or(false);
+        if is_settled {
+            let existing: i128 = env
+                .storage()
+                .instance()
+                .get(&DataKey::MaturityIndex)
+                .unwrap_or(maturity_index);
+            return Ok(existing);
+        }
+
+        let prev_max: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LastKnownIndex)
+            .unwrap_or(0);
+        let pinned = maturity_index.max(prev_max);
+
+        env.storage()
+            .instance()
+            .set(&DataKey::MaturityIndex, &pinned);
+        env.storage()
+            .instance()
+            .set(&DataKey::LastKnownIndex, &pinned);
+        env.storage().instance().set(&DataKey::IsSettled, &true);
+        bump_instance_ttl(&env, maturity);
+        Ok(pinned)
+    }
+
+    pub fn get_total_unclaimed_yield(env: Env) -> Result<i128, ContractError> {
+        let global_accrued: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::GlobalAccruedYield)
+            .unwrap_or(0);
+        let total_weight: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalYieldWeight)
+            .unwrap_or(0);
+        if total_weight == 0 {
+            return Ok(global_accrued);
+        }
+
+        let effective_index = Self::get_py_index(env.clone())?;
+        let total_supply: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalSupply)
+            .unwrap_or(0);
+
+        let scaled = common::fixed_point::wad_mul(effective_index, total_weight)?;
+        let unmaterialized = if scaled > total_supply {
+            scaled - total_supply
+        } else {
+            0
+        };
+        global_accrued
+            .checked_add(unmaterialized)
+            .ok_or(ContractError::MathOverflow)
     }
 
     pub fn total_supply(env: Env) -> i128 {

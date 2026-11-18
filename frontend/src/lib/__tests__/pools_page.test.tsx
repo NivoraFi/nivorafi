@@ -8,9 +8,10 @@ import path from "path";
 import PoolsPage, { metadata as poolsMetadata } from "@/app/pools/page";
 import { PoolsPageClient } from "@/app/pools/PoolsPageClient";
 import { TopNav } from "@/components/TopNav";
-import { MarketProvider } from "@/context/MarketContext";
+import { MarketProvider, deriveMetricsFromSnapshot } from "@/context/MarketContext";
 import { WalletProvider } from "@/context/WalletProvider";
 import { PRESET_MARKETS } from "@/lib/markets";
+import { LiveMarketSnapshot } from "@/lib/stellar";
 
 const FRONTEND_DIR = path.resolve(__dirname, "../../..");
 
@@ -82,7 +83,8 @@ describe("Pendle V2 Liquidity Pools Explorer Route (/pools) & SSR Suite", () => 
       // Liquidity table rows and action links
       expect(html).toContain("Add Liquidity");
       expect(html).toContain('href="/trade/usdc-90d?tab=liquidity"');
-      expect(html).toContain("PT-USDC / SY-USDC");
+      expect(html).toContain("PT-bUSDC-90D / sy-bUSDC");
+      expect(html).toContain("PT-sUSDC-90D / sy-sUSDC");
     });
 
     it("3.2 renders TopNav with Pools highlighted in accent ink and hides MarketSelector outside Trade", () => {
@@ -159,22 +161,88 @@ describe("Pendle V2 Liquidity Pools Explorer Route (/pools) & SSR Suite", () => 
       }
     });
 
-    it("3.6 renders distinct asset-specific reserves, TVL, fee APY, and LP APY for usdc-90d vs xlm-90d", () => {
-      const html = renderWithProviders(<PoolsPageClient />);
+    it("3.6 renders honest zero reserves on initial SSR and accurate $0.12 XLM-priced metrics when hydrated", () => {
+      // 1. Initial unhydrated SSR must show honest 0 reserves (never fabricated baseline presets)
+      const emptyHtml = renderWithProviders(<PoolsPageClient />);
+      expect(emptyHtml).toContain("0 PT (0%)");
+      expect(emptyHtml).toContain("0 SY (0%)");
+      expect(emptyHtml).toContain("$0");
+      expect(emptyHtml).not.toContain("4,008 PT");
+      expect(emptyHtml).not.toContain("$8,599");
 
-      // usdc-90d assertions
-      expect(html).toContain("4,008 PT (55%)");
-      expect(html).toContain("3,261 SY (45%)");
-      expect(html).toContain("$7,190");
-      expect(html).toContain("2.65%");
-      expect(html).toContain("11.73% LP APY");
+      // 2. Hydrated live metrics compute TVL with canonical XLM price ($0.12)
+      const usdc90d = PRESET_MARKETS.find((m) => m.id === "usdc-90d")!;
+      const xlm90d = PRESET_MARKETS.find((m) => m.id === "xlm-90d")!;
+      const nowSec = Math.floor(Date.now() / 1000);
+      const makeLiveSnap = (
+        ptTokens: number,
+        syTokens: number,
+        ptPriceInSy: number,
+        impliedFixedApyPct: number,
+        maturity: number,
+        feeRecipient: string
+      ): LiveMarketSnapshot => ({
+        state: {
+          total_pt_reserve: BigInt(Math.round(ptTokens * 1e7)),
+          total_sy_reserve: BigInt(Math.round(syTokens * 1e7)),
+          total_lp_supply: 1_000_0000000n,
+          scalar_root: 8_000000000000000000n,
+          initial_anchor: 1_000000000000000000n,
+          annual_fee_rate: 3_000000000000000n,
+          protocol_fee_bps: 2000n,
+          fee_recipient: feeRecipient,
+          maturity: BigInt(maturity),
+          maturity_index: 1_000000000n,
+          is_settled: false,
+        },
+        latestLedger: 123456,
+        nowSeconds: nowSec,
+        daysToMaturity: 90,
+        isMatured: false,
+        blendExchangeRate: 1_001000000n,
+        ammExchangeRateWad: 1_000000000000000000n,
+        ptPriceInSy,
+        ytPriceInSy: Number((1 - ptPriceInSy).toFixed(4)),
+        impliedFixedApyPct,
+        ptTotalSupply: BigInt(Math.round(ptTokens * 1e7)),
+        ytTotalSupply: BigInt(Math.round(ptTokens * 1e7)),
+        syTotalSupply: BigInt(Math.round((ptTokens + syTokens) * 1e7)),
+        ptProportionPct: 55,
+      });
 
-      // xlm-90d assertions
-      expect(html).toContain("13,990 PT (61%)");
-      expect(html).toContain("9,010 SY (39%)");
-      expect(html).toContain("$8,599");
-      expect(html).toContain("3.15%");
-      expect(html).toContain("12.05% LP APY");
+      const usdcMetrics = deriveMetricsFromSnapshot(
+        usdc90d,
+        makeLiveSnap(4008.41, 3261.47, 0.98, 8.45, usdc90d.maturity, usdc90d.contracts.poolId)
+      );
+      const xlmMetrics = deriveMetricsFromSnapshot(
+        xlm90d,
+        makeLiveSnap(13989.97, 9010.0, 0.9735, 11.4, xlm90d.maturity, xlm90d.contracts.poolId)
+      );
+
+      expect(usdcMetrics.tvlUsd).toBeCloseTo(7190, 0);
+      expect(xlmMetrics.tvlUsd).toBeCloseTo(2716, 0);
+
+      const hydratedHtml = renderWithProviders(
+        <PoolsPageClient
+          marketMetricsOverride={{
+            "usdc-90d": usdcMetrics,
+            "xlm-90d": xlmMetrics,
+          }}
+        />
+      );
+
+      expect(hydratedHtml).toContain("4,008 PT (55%)");
+      expect(hydratedHtml).toContain("3,261 SY (45%)");
+      expect(hydratedHtml).toContain("$7,190");
+      expect(hydratedHtml).toContain("2.65%");
+      expect(hydratedHtml).toContain("11.73% LP APY");
+
+      // (13989.97 * 0.9735 + 9010) * $0.12 = $2,716
+      expect(hydratedHtml).toContain("13,990 PT (61%)");
+      expect(hydratedHtml).toContain("9,010 SY (39%)");
+      expect(hydratedHtml).toContain("$2,716");
+      expect(hydratedHtml).toContain("3.15%");
+      expect(hydratedHtml).toContain("12.05% LP APY");
     });
   });
 

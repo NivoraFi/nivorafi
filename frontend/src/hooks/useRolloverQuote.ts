@@ -345,7 +345,8 @@ export function useRolloverQuote({
           "sy_for_pt",
           syInterim,
           BigInt(nowSeconds),
-          slippageBps
+          slippageBps,
+          targetSnapshot.pyIndex
         );
         estimatedTargetPt = q.estimatedOut;
         minTargetOut = q.minOutWithSlippage;

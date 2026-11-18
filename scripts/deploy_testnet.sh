@@ -43,6 +43,8 @@ RUSTC="${RUSTC_BIN}" stellar contract build --profile release
 test -f "${WASM_DIR}/market_factory.wasm" || { echo "Error: market_factory.wasm missing"; exit 1; }
 test -f "${WASM_DIR}/mock_blend.wasm" || { echo "Error: mock_blend.wasm missing"; exit 1; }
 test -f "${WASM_DIR}/sy_blend_wrapper.wasm" || { echo "Error: sy_blend_wrapper.wasm missing"; exit 1; }
+test -f "${WASM_DIR}/mock_slender.wasm" || { echo "Error: mock_slender.wasm missing"; exit 1; }
+test -f "${WASM_DIR}/sy_slender_wrapper.wasm" || { echo "Error: sy_slender_wrapper.wasm missing"; exit 1; }
 test -f "${WASM_DIR}/pt_token.wasm" || { echo "Error: pt_token.wasm missing"; exit 1; }
 test -f "${WASM_DIR}/yt_token.wasm" || { echo "Error: yt_token.wasm missing"; exit 1; }
 test -f "${WASM_DIR}/yield_pool.wasm" || { echo "Error: yield_pool.wasm missing"; exit 1; }
@@ -77,6 +79,8 @@ PT_WASM_HASH="$(upload_wasm "${WASM_DIR}/pt_token.wasm" "pt_token")"
 YT_WASM_HASH="$(upload_wasm "${WASM_DIR}/yt_token.wasm" "yt_token")"
 POOL_WASM_HASH="$(upload_wasm "${WASM_DIR}/yield_pool.wasm" "yield_pool")"
 SY_WASM_HASH="$(upload_wasm "${WASM_DIR}/sy_blend_wrapper.wasm" "sy_blend_wrapper")"
+SY_SLENDER_WASM_HASH="$(upload_wasm "${WASM_DIR}/sy_slender_wrapper.wasm" "sy_slender_wrapper")"
+MOCK_SLENDER_WASM_HASH="$(upload_wasm "${WASM_DIR}/mock_slender.wasm" "mock_slender")"
 FACTORY_WASM_HASH="$(upload_wasm "${WASM_DIR}/market_factory.wasm" "market_factory")"
 
 # ------------------------------------------------------------------------------
@@ -253,7 +257,7 @@ echo "Market 1 (USDC 30D) registered."
 # ------------------------------------------------------------------------------
 echo "==> Step 6: Deploying & Registering Market 2 (XLM 90D)..."
 
-XLM_90D_MATURITY=1801909055
+XLM_90D_MATURITY="${XLM_90D_MATURITY:-1801909056}"
 SCALAR_XLM="8000000000000000000" # 8 WAD
 ANCHOR_XLM="1000000000000000000" # 1 WAD
 
@@ -269,7 +273,7 @@ SY_XLM_ID="$(stellar contract deploy \
 SY_XLM_ID="$(echo "${SY_XLM_ID}" | tail -n 1)"
 echo "  XLM 90D SY:   ${SY_XLM_ID}"
 
-MOCK_BLEND_ID="CC7Q7FZ5YLBP3EOH635VYRC4EZDVTXVOMYZVP55Q6YIUSIXVHCJXETK6"
+MOCK_BLEND_XLM_ID="${MOCK_BLEND_XLM_ID:-CAGWGDLWNSSQEYJEE45JEBXAKNJCIHLNUK26TLFFPIWG6PPXHOTJ6DCH}"
 stellar contract invoke \
     --network "${NETWORK}" \
     --source-account "${SOURCE_ACCOUNT}" \
@@ -278,7 +282,7 @@ stellar contract invoke \
     -- initialize \
     --admin "${ADMIN_ADDRESS}" \
     --underlying-asset "${XLM_SAC}" \
-    --blend-pool "${MOCK_BLEND_ID}"
+    --blend-pool "${MOCK_BLEND_XLM_ID}"
 
 # 6b. Deploy uninitialized YieldPool for XLM
 POOL_XLM_ID="$(stellar contract deploy \
@@ -378,9 +382,152 @@ stellar contract invoke \
 echo "Market 2 (XLM 90D) registered."
 
 # ------------------------------------------------------------------------------
-# 7. Query and Verify Registry from Chain
+# 7. Deploy & Register Slender sUSDC Market (sy-sUSDC, distinct maturity)
 # ------------------------------------------------------------------------------
-echo "==> Step 7: Verifying market_factory on-chain registry..."
+echo "==> Step 7: Deploying & Registering Slender sUSDC Market..."
+
+SUSDC_MATURITY="${SUSDC_MATURITY:-1801909057}"
+SCALAR_SUSDC="8000000000000000000"
+ANCHOR_SUSDC="1000000000000000000"
+
+if [[ -z "${SLENDER_POOL_ID:-}" ]]; then
+    SLENDER_POOL_ID="$(stellar contract deploy \
+        --wasm "${WASM_DIR}/mock_slender.wasm" \
+        --network "${NETWORK}" \
+        --source-account "${SOURCE_ACCOUNT}" \
+        --quiet 2>/dev/null || stellar contract deploy \
+        --wasm "${WASM_DIR}/mock_slender.wasm" \
+        --network "${NETWORK}" \
+        --source-account "${SOURCE_ACCOUNT}" | tail -n 1)"
+    SLENDER_POOL_ID="$(echo "${SLENDER_POOL_ID}" | tail -n 1)"
+    echo "  Slender Mock Pool: ${SLENDER_POOL_ID}"
+    stellar contract invoke \
+        --network "${NETWORK}" \
+        --source-account "${SOURCE_ACCOUNT}" \
+        --id "${SLENDER_POOL_ID}" \
+        --send yes \
+        -- initialize \
+        --admin "${ADMIN_ADDRESS}" \
+        --asset "${USDC_SAC}" \
+        --initial-rate 1000000000
+fi
+S_TOKEN_ID="${S_TOKEN_ID:-${SLENDER_POOL_ID}}"
+
+SY_SUSDC_ID="$(stellar contract deploy \
+    --wasm "${WASM_DIR}/sy_slender_wrapper.wasm" \
+    --network "${NETWORK}" \
+    --source-account "${SOURCE_ACCOUNT}" \
+    --quiet 2>/dev/null || stellar contract deploy \
+    --wasm "${WASM_DIR}/sy_slender_wrapper.wasm" \
+    --network "${NETWORK}" \
+    --source-account "${SOURCE_ACCOUNT}" | tail -n 1)"
+SY_SUSDC_ID="$(echo "${SY_SUSDC_ID}" | tail -n 1)"
+echo "  sUSDC SY:   ${SY_SUSDC_ID}"
+
+stellar contract invoke \
+    --network "${NETWORK}" \
+    --source-account "${SOURCE_ACCOUNT}" \
+    --id "${SY_SUSDC_ID}" \
+    --send yes \
+    -- initialize \
+    --admin "${ADMIN_ADDRESS}" \
+    --underlying-asset "${USDC_SAC}" \
+    --slender-pool "${SLENDER_POOL_ID}" \
+    --s-token "${S_TOKEN_ID}"
+
+POOL_SUSDC_ID="$(stellar contract deploy \
+    --wasm "${WASM_DIR}/yield_pool.wasm" \
+    --network "${NETWORK}" \
+    --source-account "${SOURCE_ACCOUNT}" \
+    --quiet 2>/dev/null || stellar contract deploy \
+    --wasm "${WASM_DIR}/yield_pool.wasm" \
+    --network "${NETWORK}" \
+    --source-account "${SOURCE_ACCOUNT}" | tail -n 1)"
+POOL_SUSDC_ID="$(echo "${POOL_SUSDC_ID}" | tail -n 1)"
+
+PT_SUSDC_ID="$(stellar contract deploy \
+    --wasm "${WASM_DIR}/pt_token.wasm" \
+    --network "${NETWORK}" \
+    --source-account "${SOURCE_ACCOUNT}" \
+    --quiet 2>/dev/null || stellar contract deploy \
+    --wasm "${WASM_DIR}/pt_token.wasm" \
+    --network "${NETWORK}" \
+    --source-account "${SOURCE_ACCOUNT}" | tail -n 1)"
+PT_SUSDC_ID="$(echo "${PT_SUSDC_ID}" | tail -n 1)"
+
+stellar contract invoke \
+    --network "${NETWORK}" \
+    --source-account "${SOURCE_ACCOUNT}" \
+    --id "${PT_SUSDC_ID}" \
+    --send yes \
+    -- initialize \
+    --admin "${ADMIN_ADDRESS}" \
+    --market "${POOL_SUSDC_ID}" \
+    --name "Pendle PT sUSDC 90D" \
+    --symbol "PT-sUSDC-90D" \
+    --decimals 7 \
+    --maturity ${SUSDC_MATURITY}
+
+YT_SUSDC_ID="$(stellar contract deploy \
+    --wasm "${WASM_DIR}/yt_token.wasm" \
+    --network "${NETWORK}" \
+    --source-account "${SOURCE_ACCOUNT}" \
+    --quiet 2>/dev/null || stellar contract deploy \
+    --wasm "${WASM_DIR}/yt_token.wasm" \
+    --network "${NETWORK}" \
+    --source-account "${SOURCE_ACCOUNT}" | tail -n 1)"
+YT_SUSDC_ID="$(echo "${YT_SUSDC_ID}" | tail -n 1)"
+
+stellar contract invoke \
+    --network "${NETWORK}" \
+    --source-account "${SOURCE_ACCOUNT}" \
+    --id "${YT_SUSDC_ID}" \
+    --send yes \
+    -- initialize \
+    --admin "${ADMIN_ADDRESS}" \
+    --market "${POOL_SUSDC_ID}" \
+    --sy-contract "${SY_SUSDC_ID}" \
+    --name "Pendle YT sUSDC 90D" \
+    --symbol "YT-sUSDC-90D" \
+    --decimals 7 \
+    --maturity ${SUSDC_MATURITY}
+
+stellar contract invoke \
+    --network "${NETWORK}" \
+    --source-account "${SOURCE_ACCOUNT}" \
+    --id "${POOL_SUSDC_ID}" \
+    --send yes \
+    -- initialize \
+    --admin "${ADMIN_ADDRESS}" \
+    --sy "${SY_SUSDC_ID}" \
+    --pt "${PT_SUSDC_ID}" \
+    --yt "${YT_SUSDC_ID}" \
+    --maturity ${SUSDC_MATURITY} \
+    --scalar-root "${SCALAR_SUSDC}" \
+    --initial-anchor "${ANCHOR_SUSDC}"
+
+stellar contract invoke \
+    --network "${NETWORK}" \
+    --source-account "${SOURCE_ACCOUNT}" \
+    --id "${FACTORY_CONTRACT_ID}" \
+    --send yes \
+    -- register_market \
+    --caller "${ADMIN_ADDRESS}" \
+    --pool "${POOL_SUSDC_ID}" \
+    --sy "${SY_SUSDC_ID}" \
+    --pt "${PT_SUSDC_ID}" \
+    --yt "${YT_SUSDC_ID}" \
+    --asset "${USDC_SAC}" \
+    --maturity ${SUSDC_MATURITY} \
+    --scalar-root "${SCALAR_SUSDC}" \
+    --initial-anchor "${ANCHOR_SUSDC}"
+
+echo "Market 5 (Slender sUSDC 90D) registered."
+
+# ------------------------------------------------------------------------------
+# 8. Query and Verify Registry from Chain
+# ------------------------------------------------------------------------------
+echo "==> Step 8: Verifying market_factory on-chain registry..."
 
 MARKET_COUNT="$(stellar contract invoke \
     --network "${NETWORK}" \
@@ -406,4 +553,6 @@ echo "Factory:             ${FACTORY_CONTRACT_ID}"
 echo "Market 0 (USDC 90D): ${USDC_90D_POOL}"
 echo "Market 1 (USDC 30D): ${POOL_30D_ID}"
 echo "Market 2 (XLM 90D):  ${POOL_XLM_ID}"
+echo "Market 5 (sUSDC 90D):${POOL_SUSDC_ID}"
+echo "Manifest target:     ${DEPLOYED_JSON}"
 echo "=========================================================="

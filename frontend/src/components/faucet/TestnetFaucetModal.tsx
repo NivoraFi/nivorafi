@@ -113,6 +113,11 @@ export function TestnetFaucetModal({
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Resolved effective values
+  const activeMarket = marketCtx?.activeMarket;
+  const activeAssetCode = activeMarket?.asset.code ?? "USDC";
+  const activeSySymbol = activeMarket?.sySymbol ?? "sy-bUSDC";
+  const activePtLabel = activeMarket?.ptSymbol ? activeMarket.ptSymbol.replace(/-\d+D$/, "") : "PT-bUSDC";
+  const activeYtLabel = activeMarket?.ytSymbol ? activeMarket.ytSymbol.replace(/-\d+D$/, "") : "YT-bUSDC";
   const effectiveAddress = address !== undefined ? address : wallet.address;
   const effectiveAccountExists =
     accountExists !== undefined
@@ -157,6 +162,10 @@ export function TestnetFaucetModal({
   const isStep4Done = (effectiveSyBalance ?? 0n) > 0n;
   const isStep5Done =
     (effectivePtBalance ?? 0n) > 0n && (effectiveYtBalance ?? 0n) > 0n;
+  const isStep4PrereqDone = activeAssetCode === "XLM" ? isStep1Done : isStep2Done;
+  const isMarketMatured =
+    Boolean(marketCtx?.activeSnapshot?.isMatured) ||
+    (activeMarket ? Math.floor(Date.now() / 1000) >= activeMarket.maturity : false);
 
   // Body scroll lock & Escape listener
   useEffect(() => {
@@ -296,9 +305,10 @@ export function TestnetFaucetModal({
     }
   }, [onSwapXlmForUsdc, effectiveAddress, txToast, wallet, marketCtx]);
 
-  // Step 4: Wrap USDC to sy-bUSDC
+  // Step 4: Wrap active asset to SY
   const handleStep4 = useCallback(async () => {
-    const depositAmount = 10_0000000n; // 10 USDC
+    const depositAmount = 10_0000000n; // 10 underlying units
+    const depositLabel = `Deposit ${activeAssetCode} to SY`;
     if (onDepositSy) {
       await onDepositSy(depositAmount);
       return;
@@ -306,7 +316,7 @@ export function TestnetFaucetModal({
     if (!effectiveAddress) return;
     setInternalBusyStep("deposit");
     const toastId = txToast.notifyTxPending(
-      "Deposit USDC to SY",
+      depositLabel,
       "Awaiting wallet signature..."
     );
     try {
@@ -330,25 +340,25 @@ export function TestnetFaucetModal({
         txToast.notifyTxConfirming(
           toastId,
           txHash,
-          "Deposit USDC to SY",
+          depositLabel,
           "Confirming transaction on Testnet..."
         );
       });
       txToast.notifyTxSuccess(
         toastId,
         submitted.hash,
-        "Deposit USDC to SY",
-        "Received sy-bUSDC shares on Testnet."
+        depositLabel,
+        `Received ${activeSySymbol} shares on Testnet.`
       );
       if (marketCtx?.refreshActiveMarket) {
         await marketCtx.refreshActiveMarket();
       }
     } catch (err) {
-      txToast.notifyTxError(toastId, err, (err as any)?.txHash, "Deposit USDC to SY");
+      txToast.notifyTxError(toastId, err, (err as any)?.txHash, depositLabel);
     } finally {
       setInternalBusyStep(null);
     }
-  }, [onDepositSy, effectiveAddress, txToast, marketCtx, wallet]);
+  }, [onDepositSy, effectiveAddress, txToast, marketCtx, wallet, activeAssetCode, activeSySymbol]);
 
   // Step 5: Mint PT + YT from Yield Pool
   const handleStep5 = useCallback(async () => {
@@ -369,6 +379,7 @@ export function TestnetFaucetModal({
           type: "mint_py",
           caller: effectiveAddress,
           amount: mintAmount,
+          deadline: BigInt(Math.floor(Date.now() / 1000) + 600),
         },
         marketCtx?.activeMarket
       );
@@ -549,44 +560,44 @@ export function TestnetFaucetModal({
                 </div>
               </div>
 
-              {/* USDC */}
+              {/* Active Underlying Asset */}
               <div className="glass-card double-bezel-recessed rounded-xl p-2.5 bg-surface-muted/30 border border-glass-rim-subtle">
                 <div className="text-xs text-ink-muted flex items-center justify-between">
-                  <span>USDC</span>
-                  <TokenIcon symbol="USDC" size="xs" />
+                  <span>{activeAssetCode}</span>
+                  <TokenIcon symbol={activeAssetCode} size="xs" />
                 </div>
                 <div className="tabular-mono font-mono text-xs font-semibold text-ink mt-1 truncate">
-                  {formatBalance(effectiveUsdcBalance, 7, 2)}
+                  {formatBalance(activeAssetCode === "XLM" ? effectiveXlmBalance : effectiveUsdcBalance, 7, 2)}
                 </div>
               </div>
 
-              {/* sy-bUSDC */}
+              {/* SY Token */}
               <div className="glass-card double-bezel-recessed rounded-xl p-2.5 bg-surface-muted/30 border border-glass-rim-subtle">
                 <div className="text-xs text-ink-muted flex items-center justify-between">
-                  <span>sy-bUSDC</span>
-                  <TokenIcon symbol="BLEND" size="xs" />
+                  <span>{activeSySymbol}</span>
+                  <TokenIcon symbol={activeSySymbol === "sy-sUSDC" ? "USDC" : "BLEND"} size="xs" />
                 </div>
                 <div className="tabular-mono font-mono text-xs font-semibold text-ink mt-1 truncate">
                   {formatBalance(effectiveSyBalance, 7, 2)}
                 </div>
               </div>
 
-              {/* PT-bUSDC */}
+              {/* PT Token */}
               <div className="glass-card double-bezel-recessed rounded-xl p-2.5 bg-surface-muted/30 border border-glass-rim-subtle">
                 <div className="text-xs text-ink-muted flex items-center justify-between">
-                  <span>PT-bUSDC</span>
-                  <TokenIcon symbol="USDC" size="xs" />
+                  <span>{activePtLabel}</span>
+                  <TokenIcon symbol={activeAssetCode} size="xs" />
                 </div>
                 <div className="tabular-mono font-mono text-xs font-semibold text-positive mt-1 truncate">
                   {formatBalance(effectivePtBalance, 7, 2)}
                 </div>
               </div>
 
-              {/* YT-bUSDC */}
+              {/* YT Token */}
               <div className="glass-card double-bezel-recessed rounded-xl p-2.5 bg-surface-muted/30 border border-glass-rim-subtle col-span-2 sm:col-span-1">
                 <div className="text-xs text-ink-muted flex items-center justify-between">
-                  <span>YT-bUSDC</span>
-                  <TokenIcon symbol="USDC" size="xs" />
+                  <span>{activeYtLabel}</span>
+                  <TokenIcon symbol={activeAssetCode} size="xs" />
                 </div>
                 <div className="tabular-mono font-mono text-xs font-semibold text-accent mt-1 truncate">
                   {formatBalance(effectiveYtBalance, 7, 2)}
@@ -872,7 +883,7 @@ export function TestnetFaucetModal({
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h4 className="text-xs font-bold text-ink">Wrap USDC to sy-bUSDC</h4>
+                      <h4 className="text-xs font-bold text-ink">{`Wrap ${activeAssetCode} to ${activeSySymbol}`}</h4>
                       {isStep4Done && (
                         <span className="text-xs font-semibold text-positive bg-positive-soft px-1.5 py-0.5 rounded-full">
                           Completed
@@ -880,7 +891,7 @@ export function TestnetFaucetModal({
                       )}
                     </div>
                     <p className="text-xs text-ink-muted mt-0.5 max-w-md">
-                      Deposit 10 USDC into Blend yield wrapper to obtain standardized yield-bearing token shares.
+                      {`Deposit 10 ${activeAssetCode} into ${activeMarket?.id === "usdc-slender-90d" ? "Slender" : "Blend"} yield wrapper to obtain standardized yield-bearing token shares.`}
                     </p>
                   </div>
                 </div>
@@ -892,7 +903,7 @@ export function TestnetFaucetModal({
                     !effectiveAddress ||
                     currentBusyStep !== null ||
                     effectiveNetworkMismatch ||
-                    !isStep2Done
+                    !isStep4PrereqDone
                   }
                   className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap active:scale-95 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
                     isStep4Done
@@ -908,7 +919,7 @@ export function TestnetFaucetModal({
                   ) : (
                     <>
                       <Layers className="h-3.5 w-3.5" />
-                      <span>Deposit 10 USDC</span>
+                      <span>{`Deposit 10 ${activeAssetCode}`}</span>
                     </>
                   )}
                 </button>
@@ -950,7 +961,7 @@ export function TestnetFaucetModal({
                       )}
                     </div>
                     <p className="text-xs text-ink-muted mt-0.5 max-w-md">
-                      Split 5 sy-bUSDC shares in the Yield Pool into equal 5 PT and 5 YT yield-bearing assets.
+                      {`Split 5 ${activeSySymbol} shares in the Yield Pool into equal 5 PT and 5 YT yield-bearing assets.`}
                     </p>
                   </div>
                 </div>
@@ -962,7 +973,8 @@ export function TestnetFaucetModal({
                     !effectiveAddress ||
                     currentBusyStep !== null ||
                     effectiveNetworkMismatch ||
-                    !isStep4Done
+                    !isStep4Done ||
+                    isMarketMatured
                   }
                   className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap active:scale-95 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
                     isStep5Done

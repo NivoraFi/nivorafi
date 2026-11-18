@@ -65,10 +65,11 @@ describe("Empirical Challenger M4.1 — Adversarial Stress Testing", () => {
 
       // Verify compact 2-column grid container
       expect(html).toContain("grid grid-cols-2 gap-2");
-      // Fallback APY and leverage (React SSR inserts <!-- --> between text nodes)
+      // Honest null-snapshot placeholder (no synthetic +8.45% / 50x fallback)
       const textOnly = html.replace(/<!--.*?-->/g, "");
-      expect(textOnly).toContain("+8.45%");
-      expect(textOnly).toContain("50x");
+      expect(textOnly).not.toContain("+8.45%");
+      expect(textOnly).not.toContain("50x");
+      expect(textOnly).toContain("--");
       // Monospace typography
       expect(html).toContain("tabular-mono");
       // Labels
@@ -117,7 +118,8 @@ describe("Empirical Challenger M4.1 — Adversarial Stress Testing", () => {
       );
       const textZero = htmlZero.replace(/<!--.*?-->/g, "");
       expect(textZero).toContain("+0.00%");
-      expect(textZero).toContain("50x"); // ytPriceInSy <= 0 triggers fallback 50x
+      expect(textZero).not.toContain("50x");
+      expect(textZero).toContain("--"); // ytPriceInSy <= 0 triggers honest "--"
     });
 
     it("enforces whitespace-nowrap and single-row compact layout", () => {

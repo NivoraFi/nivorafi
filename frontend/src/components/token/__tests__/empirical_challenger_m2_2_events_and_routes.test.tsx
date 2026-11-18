@@ -671,13 +671,14 @@ describe("Empirical Challenger M2.2: Event Filtering, Activity Feed & Page Integ
     });
 
     it("3.2 TradePage (src/app/trade/[market]/page.tsx) static params and metadata resolution", async () => {
-      // 1. generateStaticParams must return all 4 slugs
+      // 1. generateStaticParams must return all 5 slugs
       const staticParams = await tradeGenerateStaticParams();
       expect(staticParams).toEqual([
         { market: "usdc-90d" },
         { market: "usdc-30d" },
         { market: "xlm-90d" },
         { market: "usdc-matured" },
+        { market: "usdc-slender-90d" },
       ]);
 
       // 2. generateMetadata must resolve proper title and description for all 4
@@ -731,6 +732,7 @@ describe("Empirical Challenger M2.2: Event Filtering, Activity Feed & Page Integ
         { id: "usdc-30d" },
         { id: "xlm-90d" },
         { id: "usdc-matured" },
+        { id: "usdc-slender-90d" },
       ]);
 
       for (const marketId of marketIds) {

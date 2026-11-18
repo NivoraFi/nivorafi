@@ -107,9 +107,9 @@ describe("Empirical Challenger M1: Multi-Market Switcher & Subtle Network Status
         expect(swapM1.method).toBe(method);
         expect(swapM2.method).toBe(method);
 
-        expect(swapM0.args.length).toBe(4);
-        expect(swapM1.args.length).toBe(4);
-        expect(swapM2.args.length).toBe(4);
+        expect(swapM0.args.length).toBe(5);
+        expect(swapM1.args.length).toBe(5);
+        expect(swapM2.args.length).toBe(5);
       }
     });
 
@@ -195,7 +195,7 @@ describe("Empirical Challenger M1: Multi-Market Switcher & Subtle Network Status
       );
 
       expect(rolloverPt.method).toBe("rollover_to_pt");
-      expect(rolloverPt.args.length).toBe(6);
+      expect(rolloverPt.args.length).toBe(7);
 
       const rolloverPy = buildActionArgs(
         {
@@ -211,7 +211,7 @@ describe("Empirical Challenger M1: Multi-Market Switcher & Subtle Network Status
       );
 
       expect(rolloverPy.method).toBe("rollover_to_py");
-      expect(rolloverPy.args.length).toBe(6);
+      expect(rolloverPy.args.length).toBe(7);
     });
   });
 
@@ -263,7 +263,7 @@ describe("Empirical Challenger M1: Multi-Market Switcher & Subtle Network Status
 
       // When targetMarket is undefined, it defaults to config contracts
       expect(swapDefault.contractId).toBe(m0.contracts.poolId);
-      expect(swapDefault.args.length).toBe(4);
+      expect(swapDefault.args.length).toBe(5);
 
       const depDefault = buildActionArgs({
         type: "deposit_sy",

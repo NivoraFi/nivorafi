@@ -1079,9 +1079,11 @@ version = "0.1.0"
 dependencies = [
  "common",
  "mock_blend",
+ "mock_slender",
  "pt_token",
  "soroban-sdk",
  "sy_blend_wrapper",
+ "sy_slender_wrapper",
  "yield_pool",
  "yt_token",
 ]
@@ -1094,6 +1096,14 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "mock_blend"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "soroban-sdk",
+]
+
+[[package]]
+name = "mock_slender"
 version = "0.1.0"
 dependencies = [
  "common",
@@ -1783,9 +1793,11 @@ dependencies = [
  "common",
  "market_factory",
  "mock_blend",
+ "mock_slender",
  "pt_token",
  "soroban-sdk",
  "sy_blend_wrapper",
+ "sy_slender_wrapper",
  "yield_pool",
  "yt_token",
 ]
@@ -1808,6 +1820,15 @@ version = "0.1.0"
 dependencies = [
  "common",
  "mock_blend",
+ "soroban-sdk",
+]
+
+[[package]]
+name = "sy_slender_wrapper"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "mock_slender",
  "soroban-sdk",
 ]
 

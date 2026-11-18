@@ -292,6 +292,9 @@
                 },
                 {
                   "i128": "10000000000"
+                },
+                {
+                  "u64": "16552000"
                 }
               ]
             }
@@ -385,7 +388,29 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "i128": "10000000000"
+                  "i128": "9530026114"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON",
+              "function_name": "claim_yield",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 }
               ]
             }
@@ -652,6 +677,26 @@
           "data": {
             "contract_data": {
               "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "6517132746326325848"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 9422499
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
               "key": {
                 "ledger_key_nonce": {
@@ -705,7 +750,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "0"
+                "i128": "469973887"
               }
             }
           },
@@ -876,7 +921,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "0"
+                "i128": "469973885"
               }
             }
           },
@@ -903,7 +948,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "0"
+                "i128": "1"
               }
             }
           },
@@ -983,7 +1028,7 @@
                         ]
                       },
                       "val": {
-                        "string": "Standardized Yield Blend USDC"
+                        "string": "Standardized Yield Blend aaa"
                       }
                     },
                     {
@@ -995,7 +1040,7 @@
                         ]
                       },
                       "val": {
-                        "string": "sy-bUSDC"
+                        "string": "sy-baaa"
                       }
                     },
                     {
@@ -1007,7 +1052,7 @@
                         ]
                       },
                       "val": {
-                        "i128": "0"
+                        "i128": "469973886"
                       }
                     },
                     {
@@ -1163,7 +1208,7 @@
                         ]
                       },
                       "val": {
-                        "string": "Pendle LP Token"
+                        "string": "NivoraFi LP aaa"
                       }
                     },
                     {
@@ -1188,6 +1233,18 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "PtPrincipalReserve"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "1"
                       }
                     },
                     {
@@ -1223,7 +1280,7 @@
                         ]
                       },
                       "val": {
-                        "string": "LP-PT-SY"
+                        "string": "LP-aaa"
                       }
                     },
                     {
@@ -1272,6 +1329,18 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "YtYieldReserve"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
                       }
                     }
                   ]
@@ -1482,7 +1551,7 @@
                       "symbol": "last_index"
                     },
                     "val": {
-                      "i128": "1000000000"
+                      "i128": "1049315068"
                     }
                   },
                   {
@@ -1507,7 +1576,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 3110500
+        "live_until": 5184100
       },
       {
         "entry": {
@@ -1552,6 +1621,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "GlobalAccruedYield"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "Initialized"
                           }
                         ]
@@ -1569,7 +1650,19 @@
                         ]
                       },
                       "val": {
-                        "bool": false
+                        "bool": true
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "LastKnownIndex"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "1049315068"
                       }
                     },
                     {
@@ -1594,6 +1687,18 @@
                       },
                       "val": {
                         "u64": "16552000"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "MaturityIndex"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "1049315068"
                       }
                     },
                     {
@@ -1643,6 +1748,18 @@
                       "val": {
                         "i128": "10000000000"
                       }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "TotalYieldWeight"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "9530026114139437860"
+                      }
                     }
                   ]
                 }
@@ -1651,7 +1768,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 3110500
+        "live_until": 5184100
       },
       {
         "entry": {
@@ -1678,7 +1795,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "10493150680"
+                      "i128": "9999999999"
                     }
                   },
                   {
@@ -1730,7 +1847,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "9506849320"
+                      "i128": "10000000001"
                     }
                   },
                   {
@@ -1980,7 +2097,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 3110500
+        "live_until": 5184100
       }
     ]
   },
@@ -1988,55 +2105,29 @@
     {
       "event": {
         "ext": "v0",
-        "contract_id": "CACMVW2KK4H5FZDFF2AUCAKQTEJMZZWJUIZF23XMRVYQBSXYLHZ6BKWN",
+        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N",
         "type": "contract",
         "body": {
           "v0": {
             "topics": [
               {
-                "symbol": "transfer"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
+                "symbol": "yield_claimed_event"
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
               },
               {
-                "string": "aaa:GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANHUF"
-              }
-            ],
-            "data": {
-              "i128": "10493150680"
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
-        "type": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "burn_event"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
               }
             ],
             "data": {
               "map": [
                 {
                   "key": {
-                    "symbol": "amount"
+                    "symbol": "yield_out"
                   },
                   "val": {
-                    "i128": "10000000000"
+                    "i128": "493150680"
                   }
                 }
               ]
@@ -2055,7 +2146,42 @@
           "v0": {
             "topics": [
               {
-                "symbol": "redeem_event"
+                "symbol": "transfer_event"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+              }
+            ],
+            "data": {
+              "map": [
+                {
+                  "key": {
+                    "symbol": "amount"
+                  },
+                  "val": {
+                    "i128": "469973885"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON",
+        "type": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "yield_claimed_event"
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -2068,18 +2194,10 @@
               "map": [
                 {
                   "key": {
-                    "symbol": "assets_out"
+                    "symbol": "yield_out"
                   },
                   "val": {
-                    "i128": "10493150680"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "shares_burned"
-                  },
-                  "val": {
-                    "i128": "10000000000"
+                    "i128": "469973885"
                   }
                 }
               ]

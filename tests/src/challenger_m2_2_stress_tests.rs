@@ -280,7 +280,8 @@ fn test_stress_all_state_mutating_entrypoints_gated_under_pause() {
     let seed_amount = 5_000_000_000i128; // 5,000 USDC
     f.usdc_admin_client.mint(&f.user1, &seed_amount);
     f.sy_client.deposit(&f.user1, &f.user1, &seed_amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &2_000_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &2_000_000_000, &f.maturity);
     f.pool_client
         .add_liquidity(&f.user1, &f.user1, &1_000_000_000, &1_000_000_000, &1);
 
@@ -304,7 +305,8 @@ fn test_stress_all_state_mutating_entrypoints_gated_under_pause() {
     // Contract A: yield_pool (15 mutating entrypoints + 1 redundant pause)
     // =========================================================================
     assert_eq!(
-        f.pool_client.try_mint_py(&f.user1, &f.user1, &10_000),
+        f.pool_client
+            .try_mint_py(&f.user1, &f.user1, &10_000, &f.maturity),
         Err(Ok(ContractError::ContractPaused)),
         "yield_pool::mint_py not gated by pause!"
     );
@@ -331,26 +333,46 @@ fn test_stress_all_state_mutating_entrypoints_gated_under_pause() {
         "yield_pool::claim_yield not gated by pause!"
     );
     assert_eq!(
-        f.pool_client
-            .try_swap_exact_pt_for_sy(&f.user1, &f.user1, &10_000, &1),
+        f.pool_client.try_swap_exact_pt_for_sy(
+            &f.user1,
+            &f.user1,
+            &10_000,
+            &1,
+            &f.maturity,
+        ),
         Err(Ok(ContractError::ContractPaused)),
         "yield_pool::swap_exact_pt_for_sy not gated by pause!"
     );
     assert_eq!(
-        f.pool_client
-            .try_swap_exact_sy_for_pt(&f.user1, &f.user1, &10_000, &1),
+        f.pool_client.try_swap_exact_sy_for_pt(
+            &f.user1,
+            &f.user1,
+            &10_000,
+            &1,
+            &f.maturity,
+        ),
         Err(Ok(ContractError::ContractPaused)),
         "yield_pool::swap_exact_sy_for_pt not gated by pause!"
     );
     assert_eq!(
-        f.pool_client
-            .try_swap_exact_sy_for_yt(&f.user1, &f.user1, &10_000, &1),
+        f.pool_client.try_swap_exact_sy_for_yt(
+            &f.user1,
+            &f.user1,
+            &10_000,
+            &1,
+            &f.maturity,
+        ),
         Err(Ok(ContractError::ContractPaused)),
         "yield_pool::swap_exact_sy_for_yt not gated by pause!"
     );
     assert_eq!(
-        f.pool_client
-            .try_swap_exact_yt_for_sy(&f.user1, &f.user1, &10_000, &1),
+        f.pool_client.try_swap_exact_yt_for_sy(
+            &f.user1,
+            &f.user1,
+            &10_000,
+            &1,
+            &f.maturity,
+        ),
         Err(Ok(ContractError::ContractPaused)),
         "yield_pool::swap_exact_yt_for_sy not gated by pause!"
     );
@@ -527,7 +549,8 @@ fn test_stress_all_queries_succeed_under_pause() {
     let seed_amount = 2_000_000_000i128;
     f.usdc_admin_client.mint(&f.user1, &seed_amount);
     f.sy_client.deposit(&f.user1, &f.user1, &seed_amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &1_000_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &1_000_000_000, &f.maturity);
     f.pool_client
         .add_liquidity(&f.user1, &f.user1, &500_000_000, &500_000_000, &1);
     f.pool_client
@@ -559,9 +582,9 @@ fn test_stress_all_queries_succeed_under_pause() {
     assert_eq!(f.pool_client.decimals(), 7);
     assert_eq!(
         f.pool_client.name(),
-        String::from_str(&f.env, "Pendle LP Token")
+        String::from_str(&f.env, "NivoraFi LP aaa")
     );
-    assert_eq!(f.pool_client.symbol(), String::from_str(&f.env, "LP-PT-SY"));
+    assert_eq!(f.pool_client.symbol(), String::from_str(&f.env, "LP-aaa"));
     assert!(f.pool_client.is_paused());
     assert_eq!(f.pool_client.get_admin(), f.admin);
     assert_eq!(f.pool_client.get_pending_admin(), None);
@@ -576,9 +599,9 @@ fn test_stress_all_queries_succeed_under_pause() {
     assert_eq!(f.sy_client.decimals(), 7);
     assert_eq!(
         f.sy_client.name(),
-        String::from_str(&f.env, "Standardized Yield Blend USDC")
+        String::from_str(&f.env, "Standardized Yield Blend aaa")
     );
-    assert_eq!(f.sy_client.symbol(), String::from_str(&f.env, "sy-bUSDC"));
+    assert_eq!(f.sy_client.symbol(), String::from_str(&f.env, "sy-baaa"));
     assert!(f.sy_client.is_paused());
     assert_eq!(f.sy_client.get_admin(), f.admin);
     assert_eq!(f.sy_client.get_pending_admin(), None);
@@ -728,7 +751,8 @@ fn test_stress_pause_unpause_churn_rapid_cycles() {
 
         // Gated operation must fail
         assert_eq!(
-            f.pool_client.try_mint_py(&f.user1, &f.user1, &1000),
+            f.pool_client
+                .try_mint_py(&f.user1, &f.user1, &1000, &f.maturity),
             Err(Ok(ContractError::ContractPaused))
         );
 
@@ -737,7 +761,9 @@ fn test_stress_pause_unpause_churn_rapid_cycles() {
         assert!(!f.pool_client.is_paused());
 
         // Gated operation must now succeed
-        let (pt, yt) = f.pool_client.mint_py(&f.user1, &f.user1, &10_000);
+        let (pt, yt) = f
+            .pool_client
+            .mint_py(&f.user1, &f.user1, &10_000, &f.maturity);
         assert_eq!(pt, 10_000);
         assert_eq!(yt, 10_000);
 
@@ -822,7 +848,8 @@ fn test_stress_approve_and_settle_maturity_behavior_during_pause() {
     let seed = 2_000_000_000i128;
     f.usdc_admin_client.mint(&f.user1, &seed);
     f.sy_client.deposit(&f.user1, &f.user1, &seed);
-    f.pool_client.mint_py(&f.user1, &f.user1, &1_000_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &1_000_000_000, &f.maturity);
 
     // Pause all contracts
     f.pool_client.pause(&f.guardian);
@@ -939,7 +966,8 @@ fn test_stress_yield_accrual_conservation_under_extended_pause() {
     let amount = 10_000_000_000i128; // 10,000 USDC
     f.usdc_admin_client.mint(&f.user1, &amount);
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &amount);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &amount, &f.maturity);
 
     // Pause all contracts
     f.pool_client.pause(&f.guardian);

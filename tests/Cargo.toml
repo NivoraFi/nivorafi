@@ -8,7 +8,9 @@ description = "Comprehensive Soroban integration tests for Stellar Pendle"
 soroban-sdk = { workspace = true, features = ["testutils"] }
 common = { workspace = true }
 mock_blend = { workspace = true }
+mock_slender = { workspace = true }
 sy_blend_wrapper = { workspace = true }
+sy_slender_wrapper = { workspace = true }
 pt_token = { workspace = true }
 yt_token = { workspace = true }
 yield_pool = { workspace = true }

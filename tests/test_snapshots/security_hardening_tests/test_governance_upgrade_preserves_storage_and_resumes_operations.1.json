@@ -361,6 +361,9 @@
                 },
                 {
                   "i128": "1000000000"
+                },
+                {
+                  "u64": "15552000"
                 }
               ]
             }
@@ -1095,7 +1098,7 @@
                         ]
                       },
                       "val": {
-                        "string": "Standardized Yield Blend USDC"
+                        "string": "Standardized Yield Blend aaa"
                       }
                     },
                     {
@@ -1107,7 +1110,7 @@
                         ]
                       },
                       "val": {
-                        "string": "sy-bUSDC"
+                        "string": "sy-baaa"
                       }
                     },
                     {
@@ -1302,7 +1305,7 @@
                         ]
                       },
                       "val": {
-                        "string": "Pendle LP Token"
+                        "string": "NivoraFi LP aaa"
                       }
                     },
                     {
@@ -1327,6 +1330,18 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "PtPrincipalReserve"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "1000000000"
                       }
                     },
                     {
@@ -1362,7 +1377,7 @@
                         ]
                       },
                       "val": {
-                        "string": "LP-PT-SY"
+                        "string": "LP-aaa"
                       }
                     },
                     {
@@ -1411,6 +1426,18 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "YtYieldReserve"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
                       }
                     }
                   ]
@@ -1730,6 +1757,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "GlobalAccruedYield"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "Guardian"
                           }
                         ]
@@ -1760,6 +1799,18 @@
                       },
                       "val": {
                         "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "LastKnownIndex"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "1000000000"
                       }
                     },
                     {
@@ -1832,6 +1883,18 @@
                       },
                       "val": {
                         "i128": "1000000000"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "TotalYieldWeight"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "1000000000000000000"
                       }
                     }
                   ]

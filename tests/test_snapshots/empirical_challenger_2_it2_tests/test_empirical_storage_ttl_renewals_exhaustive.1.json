@@ -273,6 +273,9 @@
                 },
                 {
                   "i128": "2000000000"
+                },
+                {
+                  "u64": "15552000"
                 }
               ]
             }
@@ -391,6 +394,9 @@
                 },
                 {
                   "i128": "10000"
+                },
+                {
+                  "u64": "15552000"
                 }
               ]
             }
@@ -440,6 +446,9 @@
                 },
                 {
                   "i128": "1"
+                },
+                {
+                  "u64": "15552000"
                 }
               ]
             }
@@ -489,6 +498,9 @@
                 },
                 {
                   "i128": "1"
+                },
+                {
+                  "u64": "15552000"
                 }
               ]
             }
@@ -538,6 +550,9 @@
                 },
                 {
                   "i128": "1"
+                },
+                {
+                  "u64": "15552000"
                 }
               ]
             }
@@ -587,6 +602,9 @@
                 },
                 {
                   "i128": "1"
+                },
+                {
+                  "u64": "15552000"
                 }
               ]
             }
@@ -1563,7 +1581,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "2799988960"
+                "i128": "2799988959"
               }
             }
           },
@@ -1590,7 +1608,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "2200011030"
+                "i128": "2200011031"
               }
             }
           },
@@ -1670,7 +1688,7 @@
                         ]
                       },
                       "val": {
-                        "string": "Standardized Yield Blend USDC"
+                        "string": "Standardized Yield Blend aaa"
                       }
                     },
                     {
@@ -1682,7 +1700,7 @@
                         ]
                       },
                       "val": {
-                        "string": "sy-bUSDC"
+                        "string": "sy-baaa"
                       }
                     },
                     {
@@ -1965,7 +1983,7 @@
                         ]
                       },
                       "val": {
-                        "string": "Pendle LP Token"
+                        "string": "NivoraFi LP aaa"
                       }
                     },
                     {
@@ -1990,6 +2008,18 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "PtPrincipalReserve"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "1200227988"
                       }
                     },
                     {
@@ -2025,7 +2055,7 @@
                         ]
                       },
                       "val": {
-                        "string": "LP-PT-SY"
+                        "string": "LP-aaa"
                       }
                     },
                     {
@@ -2049,7 +2079,7 @@
                         ]
                       },
                       "val": {
-                        "i128": "1200228032"
+                        "i128": "1200227984"
                       }
                     },
                     {
@@ -2061,7 +2091,7 @@
                         ]
                       },
                       "val": {
-                        "i128": "999782990"
+                        "i128": "999783043"
                       }
                     },
                     {
@@ -2075,6 +2105,18 @@
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                       }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "YtYieldReserve"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
+                      }
                     }
                   ]
                 }
@@ -2084,6 +2126,33 @@
           "ext": "v0"
         },
         "live_until": 3110400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "Balance"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "i128": "4"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 3160400
       },
       {
         "entry": {
@@ -2131,7 +2200,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "1200228032"
+                "i128": "1200227984"
               }
             }
           },
@@ -2247,7 +2316,7 @@
                         ]
                       },
                       "val": {
-                        "i128": "1200228032"
+                        "i128": "1200227988"
                       }
                     }
                   ]
@@ -2278,7 +2347,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "2000230498"
+                "i128": "2000230454"
               }
             }
           },
@@ -2327,7 +2396,7 @@
                       "symbol": "yt_balance"
                     },
                     "val": {
-                      "i128": "2000230498"
+                      "i128": "2000230454"
                     }
                   }
                 ]
@@ -2381,6 +2450,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "GlobalAccruedYield"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "Initialized"
                           }
                         ]
@@ -2399,6 +2480,18 @@
                       },
                       "val": {
                         "bool": true
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "LastKnownIndex"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "1000000000"
                       }
                     },
                     {
@@ -2482,7 +2575,19 @@
                         ]
                       },
                       "val": {
-                        "i128": "2000230498"
+                        "i128": "2000230454"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "TotalYieldWeight"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "2000230454000000000"
                       }
                     }
                   ]

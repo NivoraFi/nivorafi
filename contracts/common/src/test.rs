@@ -2,7 +2,7 @@
 extern crate std;
 
 use crate::errors::ContractError;
-use crate::fixed_point::{div_256_64, wad_div, wad_mul, WAD};
+use crate::fixed_point::{div_256_64, pos_sub, wad_div, wad_div_ceil, wad_mul, WAD};
 use crate::reentrancy::with_non_reentrant;
 use crate::storage_keys::DataKey;
 use crate::transcendental::{exp_wad, ln_wad, LN_2, MAX_EXP_INPUT};
@@ -11,8 +11,9 @@ use crate::ttl::{
     MIN_BUMP_THRESHOLD,
 };
 use crate::yield_math::{
-    calculate_fee_rate, calculate_haircut, calculate_tau_wad, get_exchange_rate,
-    swap_exact_pt_for_sy_math, swap_exact_sy_for_pt_math, MAX_FEE_RATE, MIN_FEE_RATE,
+    asset_to_sy, asset_to_sy_ceil, calculate_fee_rate, calculate_haircut,
+    calculate_pro_rata_share, calculate_tau_wad, get_exchange_rate, swap_exact_pt_for_sy_math,
+    swap_exact_sy_for_pt_math, sy_to_asset, MAX_FEE_RATE, MIN_FEE_RATE,
 };
 use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, BytesN, Env};
 
@@ -54,10 +55,68 @@ fn test_fixed_point_basic() {
 #[test]
 fn test_div_256_64_edge_cases() {
     assert_eq!(div_256_64(0, 100, 0), Err(ContractError::DivisionByZero));
+    assert_eq!(div_256_64(1, 0, 0), Err(ContractError::DivisionByZero));
     assert_eq!(div_256_64(10, 0, 5), Err(ContractError::MathOverflow));
+    assert_eq!(div_256_64(5, 0, 5), Err(ContractError::MathOverflow));
     let (q, rem) = div_256_64(0, 100, 10).unwrap();
     assert_eq!(q, 10);
     assert_eq!(rem, 0);
+}
+
+fn reference_long_div_256_64(hi: u128, lo: u128, d: u128) -> Result<(u128, u128), ContractError> {
+    if d == 0 {
+        return Err(ContractError::DivisionByZero);
+    }
+    if hi >= d {
+        return Err(ContractError::MathOverflow);
+    }
+    let mut q: u128 = 0;
+    let mut rem = hi;
+    for i in (0..128).rev() {
+        let msb = (rem >> 127) != 0;
+        rem = (rem << 1) | ((lo >> i) & 1);
+        if msb || rem >= d {
+            rem = rem.wrapping_sub(d);
+            q |= 1 << i;
+        }
+    }
+    Ok((q, rem))
+}
+
+#[test]
+fn test_div_256_64_fast_path_and_boundary_equivalence() {
+    let wad_u = WAD as u128;
+
+    // 1. hi == 0 fast-path matches long division identically
+    let lo_cases = [0u128, 1, 7, u64::MAX as u128, wad_u, u128::MAX - 1, u128::MAX];
+    let d_cases = [1u128, 2, 3, 1_000_000_007, wad_u, u128::MAX - 1, u128::MAX];
+    for &lo in &lo_cases {
+        for &d in &d_cases {
+            assert_eq!(
+                div_256_64(0, lo, d),
+                reference_long_div_256_64(0, lo, d),
+                "fast-path mismatch for lo={}, d={}",
+                lo,
+                d
+            );
+        }
+    }
+
+    // 2. Boundary hi > 0 (u128::MAX + 1 = (1, 0))
+    assert_eq!(div_256_64(1, 0, 2), Ok((1u128 << 127, 0)));
+    assert_eq!(div_256_64(1, 0, u128::MAX), Ok((1, 1)));
+    for &d in &[2u128, 3, 1_000_000_007, wad_u, u128::MAX] {
+        assert_eq!(div_256_64(1, 0, d), reference_long_div_256_64(1, 0, d));
+        assert_eq!(
+            div_256_64(d - 1, u128::MAX, d),
+            reference_long_div_256_64(d - 1, u128::MAX, d)
+        );
+    }
+
+    // 3. wad_div boundary across hi == 0 vs hi > 0 (u128::MAX / WAD)
+    let threshold = (u128::MAX / wad_u) as i128; // 340_282_366_920_938_463_463
+    assert_eq!(wad_div(threshold, 2 * WAD).unwrap(), threshold / 2);
+    assert_eq!(wad_div(threshold + 1, 2 * WAD).unwrap(), (threshold + 1) / 2);
 }
 
 #[test]
@@ -453,4 +512,162 @@ fn test_governance_upgrade_access_control() {
         client.try_upgrade(&admin, &zero_hash),
         Err(Ok(ContractError::InvalidWasmHash))
     );
+}
+
+#[contract]
+struct MockMetaToken;
+
+#[contractimpl]
+impl MockMetaToken {
+    pub fn decimals(_env: Env) -> u32 {
+        6
+    }
+
+    pub fn symbol(env: Env) -> soroban_sdk::String {
+        env.storage()
+            .instance()
+            .get(&DataKey::Symbol)
+            .unwrap_or_else(|| soroban_sdk::String::from_str(&env, "USDC"))
+    }
+
+    pub fn set_symbol(env: Env, sym: soroban_sdk::String) {
+        env.storage().instance().set(&DataKey::Symbol, &sym);
+    }
+}
+
+#[test]
+fn test_metadata_utf8_truncation_respects_char_boundaries() {
+    let env = Env::default();
+    let tok_id = env.register(MockMetaToken, ());
+    let tok_client = MockMetaTokenClient::new(&env, &tok_id);
+
+    // 17-byte UTF-8: 15 'a' + 2-byte 'é' (split at byte 16 -> must drop incomplete leading byte -> 15 bytes)
+    tok_client.set_symbol(&soroban_sdk::String::from_str(&env, "aaaaaaaaaaaaaaaé"));
+    let (dec1, buf1, len1) = crate::metadata::resolve_token_metadata(&env, &tok_id);
+    assert_eq!(dec1, 6);
+    assert_eq!(len1, 15);
+    assert_eq!(core::str::from_utf8(&buf1[..len1]), Ok("aaaaaaaaaaaaaaa"));
+
+    // 18-byte UTF-8: 14 'a' + 4-byte '🚀' (split at byte 16 -> must drop partial emoji -> 14 bytes)
+    tok_client.set_symbol(&soroban_sdk::String::from_str(&env, "aaaaaaaaaaaaaa🚀"));
+    let (_, buf2, len2) = crate::metadata::resolve_token_metadata(&env, &tok_id);
+    assert_eq!(len2, 14);
+    assert_eq!(core::str::from_utf8(&buf2[..len2]), Ok("aaaaaaaaaaaaaa"));
+
+    // 17-byte UTF-8 where 'é' completes at byte 16 and 'a' starts at byte 17 -> keeps 16 bytes
+    tok_client.set_symbol(&soroban_sdk::String::from_str(&env, "aaaaaaaaaaaaaaéa"));
+    let (_, buf3, len3) = crate::metadata::resolve_token_metadata(&env, &tok_id);
+    assert_eq!(len3, 16);
+    assert_eq!(core::str::from_utf8(&buf3[..len3]), Ok("aaaaaaaaaaaaaaé"));
+
+    // 16-byte exact ASCII -> keeps all 16 bytes
+    tok_client.set_symbol(&soroban_sdk::String::from_str(&env, "ABCDEFGHIJKLMNOP"));
+    let (_, buf4, len4) = crate::metadata::resolve_token_metadata(&env, &tok_id);
+    assert_eq!(len4, 16);
+    assert_eq!(core::str::from_utf8(&buf4[..len4]), Ok("ABCDEFGHIJKLMNOP"));
+}
+
+#[test]
+fn test_py_index_unit_conversions() {
+    use crate::fixed_point::SCALAR_9;
+
+    // py_index = 1.2 * SCALAR_9
+    let idx = 1_200_000_000i128;
+    assert_eq!(sy_to_asset(idx, 100_000_000_000).unwrap(), 120_000_000_000);
+    assert_eq!(asset_to_sy(idx, 120_000_000_000).unwrap(), 100_000_000_000);
+    assert_eq!(asset_to_sy_ceil(idx, 120_000_000_000).unwrap(), 100_000_000_000);
+
+    // Non-divisible floor vs ceil
+    // 10 * 10^9 / 1.2e9 = 8.3333... -> floor 8, ceil 9
+    assert_eq!(asset_to_sy(idx, 10).unwrap(), 8);
+    assert_eq!(asset_to_sy_ceil(idx, 10).unwrap(), 9);
+    assert_eq!(sy_to_asset(idx, 10).unwrap(), 12);
+
+    // Zero amounts
+    assert_eq!(sy_to_asset(idx, 0).unwrap(), 0);
+    assert_eq!(asset_to_sy(idx, 0).unwrap(), 0);
+    assert_eq!(asset_to_sy_ceil(idx, 0).unwrap(), 0);
+
+    // Invalid rate & negative amounts
+    assert_eq!(sy_to_asset(0, 100), Err(ContractError::InvalidRate));
+    assert_eq!(asset_to_sy(-1, 100), Err(ContractError::InvalidRate));
+    assert_eq!(asset_to_sy_ceil(0, 100), Err(ContractError::InvalidRate));
+    assert_eq!(sy_to_asset(SCALAR_9, -1), Err(ContractError::ZeroAmount));
+    assert_eq!(asset_to_sy(SCALAR_9, -1), Err(ContractError::ZeroAmount));
+    assert_eq!(asset_to_sy_ceil(SCALAR_9, -1), Err(ContractError::ZeroAmount));
+
+    // Overflow guard
+    assert_eq!(sy_to_asset(idx, i128::MAX), Err(ContractError::MathOverflow));
+    assert_eq!(asset_to_sy(idx, i128::MAX), Err(ContractError::MathOverflow));
+    assert_eq!(asset_to_sy_ceil(idx, i128::MAX), Err(ContractError::MathOverflow));
+}
+
+#[test]
+fn test_pos_sub_and_haircut_and_pro_rata_share_edge_cases() {
+    // 1. pos_sub clamps at 0 (never negative)
+    assert_eq!(pos_sub(10, 3), 7);
+    assert_eq!(pos_sub(3, 10), 0);
+    assert_eq!(pos_sub(0, i128::MAX), 0);
+    assert_eq!(pos_sub(i128::MIN, 1), 0);
+    assert_eq!(pos_sub(-5, -10), 5);
+
+    // 2. calculate_haircut negative/zero guard while preserving .min(WAD) cap
+    assert_eq!(calculate_haircut(-100 * WAD, 1000 * WAD), Ok(0));
+    assert_eq!(calculate_haircut(0, 1000 * WAD), Ok(0));
+    assert_eq!(calculate_haircut(2000 * WAD, 1000 * WAD), Ok(WAD));
+    assert_eq!(calculate_haircut(100 * WAD, 0), Err(ContractError::DivisionByZero));
+
+    // 3. calculate_pro_rata_share (uncapped, exact integer sweep)
+    let b = 1_000_000_000i128;
+    // Sub-1.0 b_rate ratio: 100B SY across 80B PT -> 40B PT yields 50B SY
+    assert_eq!(calculate_pro_rata_share(40 * b, 100 * b, 80 * b), Ok(50 * b));
+    // Non-terminating sweep: 100B across 70B, redeeming full 70B returns exact 100B
+    assert_eq!(calculate_pro_rata_share(70 * b, 100 * b, 70 * b), Ok(100 * b));
+    // Negative / zero inputs clamp to 0
+    assert_eq!(calculate_pro_rata_share(10 * b, -5, 70 * b), Ok(0));
+    assert_eq!(calculate_pro_rata_share(0, 100 * b, 70 * b), Ok(0));
+    assert_eq!(calculate_pro_rata_share(-1, 100 * b, 70 * b), Ok(0));
+    // Zero supply errors
+    assert_eq!(
+        calculate_pro_rata_share(10 * b, 100 * b, 0),
+        Err(ContractError::DivisionByZero)
+    );
+    // Overflow fallback branch (amount * available > u128::MAX)
+    let large_avail = 1_000_000_000_000_000_000_000_000i128; // 10^24
+    let large_supply = 2_000_000_000_000_000_000_000_000i128; // 2 * 10^24
+    let large_amt = 1_000_000_000_000_000_000_000_000i128; // 10^24
+    assert_eq!(
+        calculate_pro_rata_share(large_amt, large_avail, large_supply),
+        Ok(500_000_000_000_000_000_000_000)
+    );
+}
+
+#[test]
+fn test_wad_div_ceil_rounding_and_boundaries() {
+    // 1-stroop division by > WAD rounds UP to 1 (prevents 0 PT buyback cost drain)
+    let e_105 = WAD + WAD / 20; // 1.05 WAD
+    assert_eq!(wad_div(1, e_105), Ok(0));
+    assert_eq!(wad_div_ceil(1, e_105), Ok(1));
+
+    // Exact divisibility: 105 / 1.05 = 100 (no extra +1)
+    assert_eq!(wad_div_ceil(105, e_105), Ok(100));
+    // Remainder > 0: 106 / 1.05 = 100.95 -> ceil 101
+    assert_eq!(wad_div_ceil(106, e_105), Ok(101));
+    // 20 / 1.05 = 19.047 -> ceil 20
+    assert_eq!(wad_div_ceil(20, e_105), Ok(20));
+    // 21 / 1.05 = 20.0 exact
+    assert_eq!(wad_div_ceil(21, e_105), Ok(20));
+
+    // Zero & division by zero
+    assert_eq!(wad_div_ceil(0, e_105), Ok(0));
+    assert_eq!(wad_div_ceil(10, 0), Err(ContractError::DivisionByZero));
+
+    // Negative signs (ceil toward +inf)
+    assert_eq!(wad_div_ceil(-1, e_105), Ok(0));
+    assert_eq!(wad_div_ceil(-105, e_105), Ok(-100));
+    assert_eq!(wad_div_ceil(-106, e_105), Ok(-100));
+    assert_eq!(wad_div_ceil(-106, -e_105), Ok(101));
+
+    // Overflow guard
+    assert_eq!(wad_div_ceil(i128::MAX, 1), Err(ContractError::MathOverflow));
 }

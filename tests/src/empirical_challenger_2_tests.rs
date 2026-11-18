@@ -320,8 +320,9 @@ fn test_empirical_unauthenticated_invocations_fail() {
         "YieldPool initialize without admin auth must fail!"
     );
 
+    let dl = env.ledger().timestamp() + 3600;
     // 10. YieldPool mint_py without auth fails
-    let res_pool_mint = pool_client.try_mint_py(&user, &user, &1000);
+    let res_pool_mint = pool_client.try_mint_py(&user, &user, &1000, &dl);
     assert!(
         res_pool_mint.is_err(),
         "YieldPool mint_py without caller auth must fail!"
@@ -335,25 +336,25 @@ fn test_empirical_unauthenticated_invocations_fail() {
     );
 
     // 12. YieldPool swaps without auth fail
-    let res_swap_pt_sy = pool_client.try_swap_exact_pt_for_sy(&user, &user, &1000, &1);
+    let res_swap_pt_sy = pool_client.try_swap_exact_pt_for_sy(&user, &user, &1000, &1, &dl);
     assert!(
         res_swap_pt_sy.is_err(),
         "swap_exact_pt_for_sy without caller auth must fail!"
     );
 
-    let res_swap_sy_pt = pool_client.try_swap_exact_sy_for_pt(&user, &user, &1000, &1);
+    let res_swap_sy_pt = pool_client.try_swap_exact_sy_for_pt(&user, &user, &1000, &1, &dl);
     assert!(
         res_swap_sy_pt.is_err(),
         "swap_exact_sy_for_pt without caller auth must fail!"
     );
 
-    let res_swap_sy_yt = pool_client.try_swap_exact_sy_for_yt(&user, &user, &1000, &1);
+    let res_swap_sy_yt = pool_client.try_swap_exact_sy_for_yt(&user, &user, &1000, &1, &dl);
     assert!(
         res_swap_sy_yt.is_err(),
         "swap_exact_sy_for_yt without caller auth must fail!"
     );
 
-    let res_swap_yt_sy = pool_client.try_swap_exact_yt_for_sy(&user, &user, &1000, &1);
+    let res_swap_yt_sy = pool_client.try_swap_exact_yt_for_sy(&user, &user, &1000, &1, &dl);
     assert!(
         res_swap_yt_sy.is_err(),
         "swap_exact_yt_for_sy without caller auth must fail!"
@@ -467,11 +468,13 @@ fn test_empirical_blend_bad_debt_100_percent_utilization_haircut() {
 
     f.usdc_admin_client.mint(&f.user1, &u1_amount);
     f.sy_client.deposit(&f.user1, &f.user1, &u1_amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &u1_amount);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &u1_amount, &f.maturity);
 
     f.usdc_admin_client.mint(&f.user2, &u2_amount);
     f.sy_client.deposit(&f.user2, &f.user2, &u2_amount);
-    f.pool_client.mint_py(&f.user2, &f.user2, &u2_amount);
+    f.pool_client
+        .mint_py(&f.user2, &f.user2, &u2_amount, &f.maturity);
 
     assert_eq!(f.pt_client.total_supply(), total_amount);
     assert_eq!(f.sy_client.balance(&f.pool_client.address), total_amount);
@@ -541,7 +544,8 @@ fn test_empirical_blend_100_percent_bad_debt_wipeout_safety() {
     // Mint position BEFORE maturity
     f.usdc_admin_client.mint(&user3, &u3_amount);
     f.sy_client.deposit(&user3, &user3, &u3_amount);
-    f.pool_client.mint_py(&user3, &user3, &u3_amount);
+    f.pool_client
+        .mint_py(&user3, &user3, &u3_amount, &f.maturity);
 
     // Wipe out 100% of the pool's SY balance (catastrophic bad-debt failure)
     f.sy_client.burn(&f.pool_client.address, &u3_amount);

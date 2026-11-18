@@ -801,7 +801,7 @@
                         ]
                       },
                       "val": {
-                        "string": "Standardized Yield Blend USDC"
+                        "string": "Standardized Yield Blend aaa"
                       }
                     },
                     {
@@ -813,7 +813,7 @@
                         ]
                       },
                       "val": {
-                        "string": "sy-bUSDC"
+                        "string": "sy-baaa"
                       }
                     },
                     {
@@ -993,7 +993,7 @@
                         ]
                       },
                       "val": {
-                        "string": "Pendle LP Token"
+                        "string": "NivoraFi LP aaa"
                       }
                     },
                     {
@@ -1018,6 +1018,18 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "PtPrincipalReserve"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
                       }
                     },
                     {
@@ -1053,7 +1065,7 @@
                         ]
                       },
                       "val": {
-                        "string": "LP-PT-SY"
+                        "string": "LP-aaa"
                       }
                     },
                     {
@@ -1102,6 +1114,18 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "YtYieldReserve"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
                       }
                     }
                   ]
@@ -1288,6 +1312,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "GlobalAccruedYield"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "Guardian"
                           }
                         ]
@@ -1385,6 +1421,18 @@
                         "vec": [
                           {
                             "symbol": "TotalSupply"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "TotalYieldWeight"
                           }
                         ]
                       },

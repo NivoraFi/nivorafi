@@ -34,13 +34,15 @@ export function LandingView({
   const router = useSafeRouter();
   const { selectMarket = () => {}, activeMarket } = useMarket();
 
-  const impliedApy = snapshot?.impliedFixedApyPct
-    ? `${snapshot.impliedFixedApyPct.toFixed(2)}%`
-    : "8.75%";
+  const impliedApy =
+    typeof snapshot?.impliedFixedApyPct === "number"
+      ? `${snapshot.impliedFixedApyPct.toFixed(2)}%`
+      : "--";
 
-  const ytPrice = snapshot?.ytPriceInSy
-    ? `${snapshot.ytPriceInSy.toFixed(4)} SY`
-    : "0.0214 SY";
+  const ytPrice =
+    typeof snapshot?.ytPriceInSy === "number"
+      ? `${snapshot.ytPriceInSy.toFixed(4)} SY`
+      : "--";
 
   return (
     <div className="flex flex-col items-center justify-center text-center px-4 py-8 sm:py-16 w-full">

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { Address, rpc, scValToNative, xdr } from "@stellar/stellar-sdk";
+import { Account, Address, BASE_FEE, Contract, Networks, TransactionBuilder, rpc, scValToNative, xdr } from "@stellar/stellar-sdk";
 import { statSync, existsSync } from "fs";
 import { join } from "path";
 import { timingSafeEqual } from "crypto";
@@ -10,7 +10,16 @@ import { timingSafeEqual } from "crypto";
 
 export const RPC_URL = "https://soroban-testnet.stellar.org";
 export const DB_PATH = join(import.meta.dir, "events.db");
-export const HTTP_PORT = 8765;
+
+export function resolveHttpPort(rawPort: string | undefined = process.env.INDEXER_PORT || process.env.PORT): number {
+  if (!rawPort) return 8765;
+  const trimmed = rawPort.trim();
+  if (!/^\d+$/.test(trimmed)) return 8765;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : 8765;
+}
+
+export const HTTP_PORT = resolveHttpPort();
 export const HTTP_HOST = "0.0.0.0";
 export const POLL_INTERVAL_MS = 4000;
 export const INITIAL_START_LEDGER = 5646000;
@@ -20,6 +29,7 @@ export const CONTRACT_CATALOG: { id: string; label: string; role: string }[] = [
   // Global Infrastructure
   { id: "CCO4RP43OJPAP6H2NLVF4RLMQ5OSHRG2NJC3HAQU2L4KXCD5NFJS57JL", label: "Market Factory & Rollover Router", role: "market_factory" },
   { id: "CC7Q7FZ5YLBP3EOH635VYRC4EZDVTXVOMYZVP55Q6YIUSIXVHCJXETK6", label: "Mock Blend Pool (bUSDC)", role: "mock_blend" },
+  { id: "CAGWGDLWNSSQEYJEE45JEBXAKNJCIHLNUK26TLFFPIWG6PPXHOTJ6DCH", label: "Mock Blend Pool (bXLM)", role: "mock_blend" },
 
   // Market 0: Pendle bUSDC PT 90D
   { id: "CBOADRSNADEGKGNGOAVJ2W53PMF5L6TM33RCOTDBREGDWUFMT4JLAGBF", label: "Yield Pool AMM (usdc-90d)", role: "yield_pool" },
@@ -32,11 +42,23 @@ export const CONTRACT_CATALOG: { id: string; label: string; role: string }[] = [
   { id: "CDDRGJXC6WT63RGEGA56QJ2EXUBSQSAXHHEQALQ3XJ7PBDK66RRDLLQO", label: "Principal Token (PT-bUSDC-30D)", role: "pt_token" },
   { id: "CAXRGVEYTP7GWAXVK4MPBI53YEQCSSZVCNKBFFW7KPXMTKV2LYOZKRJP", label: "Yield Token (YT-bUSDC-30D)", role: "yt_token" },
 
-  // Market 2: Pendle bXLM PT 90D
-  { id: "CCHCYSCFHXHUR2YA45AR6G4BYLLKZRZNVXLKSRFN7U5M2ZGJFYOL4PDL", label: "Yield Pool AMM (xlm-90d)", role: "yield_pool" },
-  { id: "CC6UIRYJZ44GWPXKVAIYUZTSFXRBLVOVLV6BI5P2KELYFLYZ5JA44MAO", label: "SY Wrapper (sy-bXLM)", role: "sy_wrapper" },
-  { id: "CAXL7L7TUIIZJ5Q4FQLJY4RWQYBFAEL2VOLZ44B3BDCWPR7BUDZ6BNRC", label: "Principal Token (PT-bXLM-90D)", role: "pt_token" },
-  { id: "CBEO7A6DBTMLZXZCP643GQ6CINCK6K4I2H2YGP7VX3LDBBBUBMCHZ2HU", label: "Yield Token (YT-bXLM-90D)", role: "yt_token" },
+  // Market 3: Pendle bXLM PT 90D (authoritative deployed_contracts.json factoryId 3)
+  { id: "CAQ24DFWIZ4GHS6ES6DX236R5EYMMS3DF3BBZE63NKEDGRGO4B7IRTZ4", label: "Yield Pool AMM (xlm-90d)", role: "yield_pool" },
+  { id: "CAOUCLCZGM3WHGQ5S653WQHAMAMPP3UW4IC5VPUIW2XFVDAR3NFJ6B3W", label: "SY Wrapper (sy-bXLM)", role: "sy_wrapper" },
+  { id: "CCDD5IJCCNLAR2F5Y4663LFKKSQ32QMWGILFXY46E2SQ4SC3IKAZKRD3", label: "Principal Token (PT-bXLM-90D)", role: "pt_token" },
+  { id: "CC6VG5R454INCUWAS7K37H5H35Q4WNLH5Y72J4GLXRZ5R225XOFPD4ET", label: "Yield Token (YT-bXLM-90D)", role: "yt_token" },
+
+  // Market 4: Pendle bUSDC PT Matured (authoritative deployed_contracts.json factoryId 4)
+  { id: "CASJWZ7LPCGL2QRVOQNXLH4NYX556XW5GB5BX73K6VC7M2L354DQOMH5", label: "Yield Pool AMM (usdc-matured)", role: "yield_pool" },
+  { id: "CDO45MQP43VNVBF5QAU6ORKDVEV4D5RM2EUIBUVORGBUCGABT23JSKQW", label: "Principal Token (PT-bUSDC-MAT)", role: "pt_token" },
+  { id: "CDKFTNVVAVU5CSRX3V7GOJYS53MBF52MBRB26M2S4Y34JZWOH7YJQOBY", label: "Yield Token (YT-bUSDC-MAT)", role: "yt_token" },
+
+  // Market 5: Pendle sUSDC PT 90D (Slender sUSDC SY Adapter)
+  { id: "CBZAIQZCWK6AWE3UHLC7EZUSDPBOS767LA5TAASK4SSLZRNAYHKPBYRS", label: "Mock Slender Pool (sUSDC)", role: "mock_slender" },
+  { id: "CACPNCMRPCYXT2IFNAIYY7DVTZARI2HFKIFMX2LBUTJ3YU6Z6QVBQDC5", label: "Yield Pool AMM (usdc-slender-90d)", role: "yield_pool" },
+  { id: "CA5Q7BXAPRO3XULUEDTFVFZU2ZU2N7Z6CLZNQW7WDDKVJV6776DGHPCJ", label: "SY Slender Wrapper (sy-sUSDC)", role: "sy_wrapper" },
+  { id: "CBNRSIS3ACCYL7ORHU6XP3YGMEBLZAJN3HOWSJIFAYBH7I7VIZUGSIK5", label: "Principal Token (PT-sUSDC-90D)", role: "pt_token" },
+  { id: "CCKMWQO2HNOP3L6CZU73KNEZLN3XVZ7EWAMCA77CAYY5FW3XZWO6DPCA", label: "Yield Token (YT-sUSDC-90D)", role: "yt_token" },
 
   // Underlying SACs
   { id: "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA", label: "USDC SAC", role: "underlying_sac" },
@@ -65,11 +87,13 @@ export function chunkContractFilters(contractIds: string[]): { type: "contract";
 
 export interface MarketMetadata {
   id: string; // Canonical identifier e.g. "usdc-90d"
+  factoryId: number;
   name: string;
   poolId: string;
   syId: string;
   ptId: string;
   ytId: string;
+  blendPoolId: string;
   asset: string;
   assetPriceUsd: number;
   tenor: string;
@@ -77,35 +101,37 @@ export interface MarketMetadata {
   scalarRoot: number;
   initialAnchor: number;
   underlyingApy: number; // Percentage e.g. 4.85
-  baselinePtPrice: number;
-  baselineTvlSy: string;
 }
 
+export const DEFAULT_MARKET: MarketMetadata = {
+  id: "usdc-90d",
+  factoryId: 0,
+  name: "Pendle bUSDC PT 90D",
+  poolId: "CBOADRSNADEGKGNGOAVJ2W53PMF5L6TM33RCOTDBREGDWUFMT4JLAGBF",
+  syId: "CCOOCS3PQPCKGUHQU2HELFUQ6Y7VRNKFMCJIAIG4S2FSUGTRSKYQLWP5",
+  ptId: "CCYQPUI7VI7GJKJM6JZIWVVZPJ4GKZ2ZYQ5FT5JBMSXHZITDOVRMS37A",
+  ytId: "CCH3B54EW4XZKA6IBHJ2XFLDQCAJZWQ2N2ZREZDUNPJLLMOD3E5B7Z73",
+  blendPoolId: "CC7Q7FZ5YLBP3EOH635VYRC4EZDVTXVOMYZVP55Q6YIUSIXVHCJXETK6",
+  asset: "USDC",
+  assetPriceUsd: 1.0,
+  tenor: "90D",
+  maturity: 1801909055, // 2027-02-06T10:17:35Z
+  scalarRoot: 8.0,
+  initialAnchor: 1.0,
+  underlyingApy: 4.85,
+};
+
 export const MARKETS: Record<string, MarketMetadata> = {
-  "usdc-90d": {
-    id: "usdc-90d",
-    name: "Pendle bUSDC PT 90D",
-    poolId: "CBOADRSNADEGKGNGOAVJ2W53PMF5L6TM33RCOTDBREGDWUFMT4JLAGBF",
-    syId: "CCOOCS3PQPCKGUHQU2HELFUQ6Y7VRNKFMCJIAIG4S2FSUGTRSKYQLWP5",
-    ptId: "CCYQPUI7VI7GJKJM6JZIWVVZPJ4GKZ2ZYQ5FT5JBMSXHZITDOVRMS37A",
-    ytId: "CCH3B54EW4XZKA6IBHJ2XFLDQCAJZWQ2N2ZREZDUNPJLLMOD3E5B7Z73",
-    asset: "USDC",
-    assetPriceUsd: 1.0,
-    tenor: "90D",
-    maturity: 1801909055, // 2027-02-06T10:17:35Z
-    scalarRoot: 8.0,
-    initialAnchor: 1.0,
-    underlyingApy: 4.85,
-    baselinePtPrice: 0.9802,
-    baselineTvlSy: "542000000",
-  },
+  "usdc-90d": DEFAULT_MARKET,
   "usdc-30d": {
     id: "usdc-30d",
+    factoryId: 1,
     name: "Pendle bUSDC PT 30D",
     poolId: "CCITOO7WPWXHNWQIF62CD7UEW6I3TKXCMPTW4BRTV4UCKBXXEZMZDSFD",
     syId: "CCOOCS3PQPCKGUHQU2HELFUQ6Y7VRNKFMCJIAIG4S2FSUGTRSKYQLWP5",
     ptId: "CDDRGJXC6WT63RGEGA56QJ2EXUBSQSAXHHEQALQ3XJ7PBDK66RRDLLQO",
     ytId: "CAXRGVEYTP7GWAXVK4MPBI53YEQCSSZVCNKBFFW7KPXMTKV2LYOZKRJP",
+    blendPoolId: "CC7Q7FZ5YLBP3EOH635VYRC4EZDVTXVOMYZVP55Q6YIUSIXVHCJXETK6",
     asset: "USDC",
     assetPriceUsd: 1.0,
     tenor: "30D",
@@ -113,30 +139,69 @@ export const MARKETS: Record<string, MarketMetadata> = {
     scalarRoot: 4.0,
     initialAnchor: 1.0,
     underlyingApy: 4.85,
-    baselinePtPrice: 0.9943,
-    baselineTvlSy: "250000000",
   },
   "xlm-90d": {
     id: "xlm-90d",
+    factoryId: 3,
     name: "Pendle bXLM PT 90D",
-    poolId: "CCHCYSCFHXHUR2YA45AR6G4BYLLKZRZNVXLKSRFN7U5M2ZGJFYOL4PDL",
-    syId: "CC6UIRYJZ44GWPXKVAIYUZTSFXRBLVOVLV6BI5P2KELYFLYZ5JA44MAO",
-    ptId: "CAXL7L7TUIIZJ5Q4FQLJY4RWQYBFAEL2VOLZ44B3BDCWPR7BUDZ6BNRC",
-    ytId: "CBEO7A6DBTMLZXZCP643GQ6CINCK6K4I2H2YGP7VX3LDBBBUBMCHZ2HU",
+    poolId: "CAQ24DFWIZ4GHS6ES6DX236R5EYMMS3DF3BBZE63NKEDGRGO4B7IRTZ4",
+    syId: "CAOUCLCZGM3WHGQ5S653WQHAMAMPP3UW4IC5VPUIW2XFVDAR3NFJ6B3W",
+    ptId: "CCDD5IJCCNLAR2F5Y4663LFKKSQ32QMWGILFXY46E2SQ4SC3IKAZKRD3",
+    ytId: "CC6VG5R454INCUWAS7K37H5H35Q4WNLH5Y72J4GLXRZ5R225XOFPD4ET",
+    blendPoolId: "CAGWGDLWNSSQEYJEE45JEBXAKNJCIHLNUK26TLFFPIWG6PPXHOTJ6DCH",
     asset: "XLM",
     assetPriceUsd: 0.12,
     tenor: "90D",
-    maturity: 1801909055, // 2027-02-06T10:17:35Z
+    maturity: 1801909056, // 2027-02-06T10:17:36Z
     scalarRoot: 8.0,
     initialAnchor: 1.0,
-    underlyingApy: 5.20,
-    baselinePtPrice: 0.9789,
-    baselineTvlSy: "850000000",
+    underlyingApy: 3.2,
+  },
+  "usdc-matured": {
+    id: "usdc-matured",
+    factoryId: 4,
+    name: "Pendle bUSDC PT Matured",
+    poolId: "CASJWZ7LPCGL2QRVOQNXLH4NYX556XW5GB5BX73K6VC7M2L354DQOMH5",
+    syId: "CCOOCS3PQPCKGUHQU2HELFUQ6Y7VRNKFMCJIAIG4S2FSUGTRSKYQLWP5",
+    ptId: "CDO45MQP43VNVBF5QAU6ORKDVEV4D5RM2EUIBUVORGBUCGABT23JSKQW",
+    ytId: "CDKFTNVVAVU5CSRX3V7GOJYS53MBF52MBRB26M2S4Y34JZWOH7YJQOBY",
+    blendPoolId: "CC7Q7FZ5YLBP3EOH635VYRC4EZDVTXVOMYZVP55Q6YIUSIXVHCJXETK6",
+    asset: "USDC",
+    assetPriceUsd: 1.0,
+    tenor: "MATURED",
+    maturity: 1794455723, // 2026-11-12T03:55:23Z
+    scalarRoot: 8.0,
+    initialAnchor: 1.0,
+    underlyingApy: 4.85,
+  },
+  "usdc-slender-90d": {
+    id: "usdc-slender-90d",
+    factoryId: 5,
+    name: "Pendle sUSDC PT 90D (Slender)",
+    poolId: "CACPNCMRPCYXT2IFNAIYY7DVTZARI2HFKIFMX2LBUTJ3YU6Z6QVBQDC5",
+    syId: "CA5Q7BXAPRO3XULUEDTFVFZU2ZU2N7Z6CLZNQW7WDDKVJV6776DGHPCJ",
+    ptId: "CBNRSIS3ACCYL7ORHU6XP3YGMEBLZAJN3HOWSJIFAYBH7I7VIZUGSIK5",
+    ytId: "CCKMWQO2HNOP3L6CZU73KNEZLN3XVZ7EWAMCA77CAYY5FW3XZWO6DPCA",
+    blendPoolId: "CBZAIQZCWK6AWE3UHLC7EZUSDPBOS767LA5TAASK4SSLZRNAYHKPBYRS",
+    asset: "USDC",
+    assetPriceUsd: 1.0,
+    tenor: "90D",
+    maturity: 1801909057, // 2027-02-06T10:17:37Z
+    scalarRoot: 8.0,
+    initialAnchor: 1.0,
+    underlyingApy: 4.85,
   },
 };
 
+export const SCALAR_9_BIG = 1_000_000_000n;
+
+export function syToAssetBigInt(pyIndex: bigint, syAmount: bigint): bigint {
+  const idx = pyIndex > 0n ? pyIndex : SCALAR_9_BIG;
+  return (syAmount * idx) / SCALAR_9_BIG;
+}
+
 export function resolveMarket(identifier: string): MarketMetadata | null {
-  if (!identifier) return MARKETS["usdc-90d"]!;
+  if (!identifier) return DEFAULT_MARKET;
   const trimmed = identifier.trim();
   const lower = trimmed.toLowerCase();
   if (MARKETS[lower]) return MARKETS[lower]!;
@@ -160,11 +225,10 @@ export function getMarketForContract(contractId: string): MarketMetadata | null 
       return m;
     }
   }
-  if (contractId === "CCOOCS3PQPCKGUHQU2HELFUQ6Y7VRNKFMCJIAIG4S2FSUGTRSKYQLWP5") {
-    return MARKETS["usdc-90d"]!;
-  }
-  if (contractId === "CC6UIRYJZ44GWPXKVAIYUZTSFXRBLVOVLV6BI5P2KELYFLYZ5JA44MAO") {
-    return MARKETS["xlm-90d"]!;
+  for (const m of Object.values(MARKETS)) {
+    if (m.syId === contractId) {
+      return m;
+    }
   }
   return null;
 }
@@ -432,7 +496,7 @@ export interface DecodedEvent {
   rawJson: string;
 }
 
-export function decodeRpcEvent(rawEvt: rpc.Api.RawEventResponse): DecodedEvent | null {
+export function decodeRpcEvent(rawEvt: rpc.Api.EventResponse | rpc.Api.RawEventResponse): DecodedEvent | null {
   try {
     const contractId = rawEvt.contractId?.toString() || "";
     const txHash = rawEvt.txHash || "";
@@ -568,14 +632,39 @@ export function decodeRpcEvent(rawEvt: rpc.Api.RawEventResponse): DecodedEvent |
       }
 
       case "rollover_executed":
+      case "rollover_py_executed":
       case "rollover": {
+        const isPyRollover = type === "rollover_py_executed" || data.py_minted !== undefined;
         type = "rollover";
         caller = rawEvt.topic?.[1] ? scValToAddress(rawEvt.topic[1]) : "";
         parsedData.sourcePool = rawEvt.topic?.[2] ? scValToAddress(rawEvt.topic[2]) : "";
         parsedData.targetPool = rawEvt.topic?.[3] ? scValToAddress(rawEvt.topic[3]) : "";
         parsedData.ptBurned = scValToBigInt(data.pt_burned).toString();
         parsedData.syReceived = scValToBigInt(data.sy_received).toString();
-        parsedData.targetPtMinted = scValToBigInt(data.target_pt_minted).toString();
+        if (isPyRollover) {
+          parsedData.pyMinted = scValToBigInt(data.py_minted).toString();
+        } else {
+          parsedData.targetPtMinted = scValToBigInt(data.target_pt_minted).toString();
+        }
+        break;
+      }
+
+      case "zap_in": {
+        type = "zap_in";
+        caller = rawEvt.topic?.[1] ? scValToAddress(rawEvt.topic[1]) : "";
+        receiver = rawEvt.topic?.[2] ? scValToAddress(rawEvt.topic[2]) : "";
+        parsedData.pool = rawEvt.topic?.[3] ? scValToAddress(rawEvt.topic[3]) : "";
+        parsedData.mode = scValToNumber(data.mode);
+        parsedData.underlyingAmount = scValToBigInt(data.underlying_amount).toString();
+        parsedData.syAmount = scValToBigInt(data.sy_amount).toString();
+        parsedData.outAmount = scValToBigInt(data.out_amount).toString();
+        parsedData.residualSy = scValToBigInt(data.residual_sy).toString();
+        break;
+      }
+
+      case "rate_updated": {
+        type = "rate_updated";
+        parsedData.newRate = scValToBigInt(data.new_rate).toString();
         break;
       }
 
@@ -619,24 +708,152 @@ export function decodeRpcEvent(rawEvt: rpc.Api.RawEventResponse): DecodedEvent |
 export class EventStorage {
   private db: Database;
   private currentTvlByMarket: Map<string, bigint> = new Map();
+  private pyIndexByMarket: Map<string, bigint> = new Map();
 
   constructor(dbPath: string = DB_PATH) {
     this.db = new Database(dbPath, { create: true });
     this.init();
+    this.hydratePyIndices();
     this.backfillMarketSnapshots();
+    this.hydrateCurrentTvl();
     this.backfillUserPositions();
   }
 
-  private init(): void {
-    // Concurrency Hardening: Enable WAL mode and 5-second busy timeout
-    this.db.exec("PRAGMA journal_mode = WAL;");
-    this.db.exec("PRAGMA synchronous = NORMAL;");
-    this.db.exec("PRAGMA busy_timeout = 5000;");
+  private hydrateCurrentTvl(): void {
+    try {
+      const stateRows = this.db.prepare(
+        "SELECT key, value FROM indexer_state WHERE key LIKE 'market_tvl:%'"
+      ).all() as { key: string; value: string }[];
 
-    // Initialize TVL cache with baseline values
-    for (const m of Object.values(MARKETS)) {
-      this.currentTvlByMarket.set(m.id, BigInt(m.baselineTvlSy));
+      for (const row of stateRows) {
+        const marketId = row.key.slice("market_tvl:".length);
+        const rawVal = (row.value || "").trim();
+        if (!marketId || !/^\d+$/.test(rawVal)) continue;
+        this.currentTvlByMarket.set(marketId, BigInt(rawVal));
+      }
+
+      const rows = this.db.prepare(`
+        SELECT market_id, tvl_sy
+        FROM market_snapshots
+        ORDER BY bucket_timestamp DESC,
+                 CASE interval WHEN '1D' THEN 0 WHEN '1W' THEN 1 WHEN '1M' THEN 2 ELSE 3 END ASC
+      `).all() as { market_id: string; tvl_sy: string }[];
+
+      for (const row of rows) {
+        if (!row.market_id || this.currentTvlByMarket.has(row.market_id)) continue;
+        const tvl = scValToBigInt(row.tvl_sy);
+        if (tvl >= 0n) {
+          this.currentTvlByMarket.set(row.market_id, tvl);
+        }
+      }
+
+      // Fallback for legacy DBs where another market had snapshots so backfillMarketSnapshots()
+      // skipped, leaving un-snapshotted mint_py/redeem_py/liquidity TVL only in raw events.
+      const fallbackRows = this.db.prepare(`
+        SELECT contract_id, type, data_json
+        FROM events
+        WHERE type IN ('liquidity', 'mint_py', 'redeem_py')
+        ORDER BY timestamp ASC, ledger ASC, id ASC
+      `).all() as { contract_id: string; type: string; data_json: string }[];
+
+      const hydratedFromLedger = new Set<string>(this.currentTvlByMarket.keys());
+      for (const row of fallbackRows) {
+        let parsed: Record<string, unknown> = {};
+        try {
+          parsed = JSON.parse(row.data_json);
+        } catch {
+          continue;
+        }
+        const poolHint = typeof parsed?.pool === "string" ? parsed.pool : "";
+        const market = (parsed?.marketId ? resolveMarket(String(parsed.marketId)) : null)
+          ?? (poolHint ? resolveMarket(poolHint) : null)
+          ?? getMarketForContract(row.contract_id);
+        if (!market || hydratedFromLedger.has(market.id)) continue;
+
+        const cur = this.currentTvlByMarket.get(market.id) ?? 0n;
+        if (row.type === "liquidity") {
+          const syAmt = scValToBigInt(parsed.syAmount ?? parsed.sy_amount);
+          const isAdd = scValToBoolean(parsed.isAdd ?? parsed.is_add);
+          const delta = isAdd ? syAmt * 2n : -(syAmt * 2n);
+          this.currentTvlByMarket.set(market.id, cur + delta > 0n ? cur + delta : 0n);
+        } else if (row.type === "mint_py") {
+          const syIn = scValToBigInt(parsed.syIn ?? parsed.sy_in);
+          this.currentTvlByMarket.set(market.id, cur + syIn);
+        } else if (row.type === "redeem_py") {
+          const syOut = scValToBigInt(parsed.syOut ?? parsed.sy_out ?? parsed.assetsOut);
+          this.currentTvlByMarket.set(market.id, cur > syOut ? cur - syOut : 0n);
+        }
+      }
+    } catch (err) {
+      console.warn("[Indexer] Failed to hydrate current TVL state:", err);
     }
+  }
+
+  public setMarketPyIndex(marketId: string, pyIndex: bigint, persist: boolean = true): void {
+    if (pyIndex > 0n) {
+      const prev = this.pyIndexByMarket.get(marketId) ?? SCALAR_9_BIG;
+      const next = pyIndex > prev ? pyIndex : prev;
+      this.pyIndexByMarket.set(marketId, next);
+      if (persist && next > prev) {
+        this.setState(`market_py_index:${marketId}`, next.toString());
+      }
+    }
+  }
+
+  public getMarketPyIndex(marketId: string): bigint {
+    return this.pyIndexByMarket.get(marketId) ?? SCALAR_9_BIG;
+  }
+
+  private hydratePyIndices(): void {
+    try {
+      const stateRows = this.db.prepare(
+        "SELECT key, value FROM indexer_state WHERE key LIKE 'market_py_index:%'"
+      ).all() as { key: string; value: string }[];
+      for (const row of stateRows) {
+        const marketId = row.key.slice("market_py_index:".length);
+        if (!marketId) continue;
+        const val = scValToBigInt(row.value);
+        if (val > 0n) {
+          this.setMarketPyIndex(marketId, val, false);
+        }
+      }
+
+      const rateRows = this.db.prepare(`
+        SELECT contract_id, data_json
+        FROM events
+        WHERE type = 'rate_updated'
+        ORDER BY timestamp ASC, ledger ASC, id ASC
+      `).all() as { contract_id: string; data_json: string }[];
+
+      for (const row of rateRows) {
+        let parsed: Record<string, unknown> = {};
+        try {
+          parsed = JSON.parse(row.data_json);
+        } catch {
+          continue;
+        }
+        const newRate = scValToBigInt(parsed?.newRate ?? parsed?.new_rate);
+        if (newRate > 0n) {
+          for (const m of Object.values(MARKETS)) {
+            if (m.blendPoolId === row.contract_id || m.syId === row.contract_id) {
+              this.setMarketPyIndex(m.id, newRate, true);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[Indexer] Failed to hydrate PyIndex state:", err);
+    }
+  }
+
+  private init(): void {
+    // Concurrency Hardening: Configure 5-second busy timeout FIRST before any lock-acquiring PRAGMA or DDL
+    this.db.exec("PRAGMA busy_timeout = 5000;");
+    const journalRow = this.db.query("PRAGMA journal_mode;").get() as { journal_mode?: string } | null;
+    if (journalRow?.journal_mode?.toLowerCase() !== "wal") {
+      this.db.exec("PRAGMA journal_mode = WAL;");
+    }
+    this.db.exec("PRAGMA synchronous = NORMAL;");
 
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS events (
@@ -715,12 +932,35 @@ export class EventStorage {
    * intervals ('1D', '1W', '1M', 'ALL') from incoming DeFi events.
    */
   public recordEventSnapshots(event: DecodedEvent): void {
-    const market = getMarketForContract(event.contractId);
+    if (event.type === "rate_updated") {
+      const newRate = scValToBigInt(event.data?.newRate ?? event.data?.new_rate);
+      if (newRate > 0n) {
+        for (const m of Object.values(MARKETS)) {
+          if (m.blendPoolId === event.contractId || m.syId === event.contractId) {
+            this.setMarketPyIndex(m.id, newRate);
+          }
+        }
+      }
+      return;
+    }
+
+    const poolHint = typeof event.data?.pool === "string" ? event.data.pool : "";
+    const market = (event.data?.marketId ? resolveMarket(String(event.data.marketId)) : null)
+      ?? (poolHint ? resolveMarket(poolHint) : null)
+      ?? getMarketForContract(event.contractId);
     if (!market) return;
 
-    let ptPrice = market.baselinePtPrice;
+    const rawEventPyIdx = event.data?.pyIndex ?? event.data?.py_index;
+    const pyIndex = rawEventPyIdx !== undefined && rawEventPyIdx !== null
+      ? scValToBigInt(rawEventPyIdx)
+      : this.getMarketPyIndex(market.id);
+    if (pyIndex > SCALAR_9_BIG) {
+      this.setMarketPyIndex(market.id, pyIndex);
+    }
+
+    let ptPrice: number | null = null;
     let volumeSy = 0n;
-    const currentTvl = this.currentTvlByMarket.get(market.id) ?? BigInt(market.baselineTvlSy);
+    const currentTvl = this.currentTvlByMarket.get(market.id) ?? 0n;
 
     if (event.type === "swap") {
       const amtIn = BigInt((event.data.amountIn as string) || "0");
@@ -729,60 +969,90 @@ export class EventStorage {
       const dir = Number(event.data.direction ?? 0);
 
       if (dir === 0) {
-        // PT -> SY (Sell PT)
+        // PT -> SY (Sell PT): 1 PT = 1 Underlying, scale grossSy -> grossAsset
         const grossSy = amtOut + fee;
+        const grossAsset = syToAssetBigInt(pyIndex, grossSy);
         volumeSy = grossSy;
-        if (amtIn > 0n) ptPrice = Number(grossSy) / Number(amtIn);
+        if (amtIn > 0n) ptPrice = Number(grossAsset) / Number(amtIn);
       } else if (dir === 1) {
-        // SY -> PT (Buy PT)
+        // SY -> PT (Buy PT): scale syIn -> assetIn
         const grossPt = amtOut + fee;
+        const assetIn = syToAssetBigInt(pyIndex, amtIn);
         volumeSy = amtIn;
-        if (grossPt > 0n) ptPrice = Number(amtIn) / Number(grossPt);
+        if (grossPt > 0n) ptPrice = Number(assetIn) / Number(grossPt);
       } else if (dir === 2) {
-        // SY -> YT (Buy YT)
+        // SY -> YT (Buy YT): scale syIn -> assetIn
+        const assetIn = syToAssetBigInt(pyIndex, amtIn);
         volumeSy = amtIn;
         if (amtOut > 0n) {
-          const ytPrice = Number(amtIn) / Number(amtOut);
+          const ytPrice = Number(assetIn) / Number(amtOut);
           ptPrice = Math.max(0.0001, 1.0 - ytPrice);
         }
       } else if (dir === 3) {
-        // YT -> SY (Sell YT)
+        // YT -> SY (Sell YT): scale grossSy -> grossAsset
         const grossSy = amtOut + fee;
+        const grossAsset = syToAssetBigInt(pyIndex, grossSy);
         volumeSy = grossSy;
         if (amtIn > 0n) {
-          const ytPrice = Number(grossSy) / Number(amtIn);
+          const ytPrice = Number(grossAsset) / Number(amtIn);
           ptPrice = Math.max(0.0001, 1.0 - ytPrice);
         }
       }
-      ptPrice = Math.min(0.9999, Math.max(0.0001, ptPrice));
+      if (ptPrice !== null) {
+        ptPrice = Math.min(0.9999, Math.max(0.0001, ptPrice));
+      }
     } else if (event.type === "liquidity") {
       const ptAmt = BigInt((event.data.ptAmount as string) || "0");
       const syAmt = BigInt((event.data.syAmount as string) || "0");
-      const isAdd = Boolean(event.data.isAdd);
+      const isAdd = scValToBoolean(event.data?.isAdd ?? event.data?.is_add);
       if (ptAmt > 0n && syAmt > 0n) {
-        ptPrice = Math.min(0.9999, Math.max(0.0001, Number(syAmt) / Number(ptAmt)));
+        const assetAmt = syToAssetBigInt(pyIndex, syAmt);
+        ptPrice = Math.min(0.9999, Math.max(0.0001, Number(assetAmt) / Number(ptAmt)));
       }
       volumeSy = syAmt;
       const tvlDelta = isAdd ? syAmt * 2n : -(syAmt * 2n);
-      const nextTvl = currentTvl + tvlDelta > 0n ? currentTvl + tvlDelta : currentTvl;
+      const nextTvl = currentTvl + tvlDelta > 0n ? currentTvl + tvlDelta : 0n;
       this.currentTvlByMarket.set(market.id, nextTvl);
+      this.setState(`market_tvl:${market.id}`, nextTvl.toString());
     } else if (event.type === "mint_py") {
       const syIn = BigInt((event.data.syIn as string) || "0");
       volumeSy = syIn;
-      this.currentTvlByMarket.set(market.id, currentTvl + syIn);
-    } else if (event.type === "redeem" || event.type === "redeem_py") {
+      const nextTvl = currentTvl + syIn;
+      this.currentTvlByMarket.set(market.id, nextTvl);
+      this.setState(`market_tvl:${market.id}`, nextTvl.toString());
+    } else if (event.type === "redeem_py") {
       const syOut = BigInt((event.data.syOut as string) || (event.data.assetsOut as string) || "0");
       volumeSy = syOut;
-      const nextTvl = currentTvl > syOut ? currentTvl - syOut : currentTvl;
+      const nextTvl = currentTvl > syOut ? currentTvl - syOut : 0n;
       this.currentTvlByMarket.set(market.id, nextTvl);
-    } else if (event.type === "deposit") {
-      const syAmt = BigInt((event.data.underlyingAmount as string) || "0");
-      volumeSy = syAmt;
-      this.currentTvlByMarket.set(market.id, currentTvl + syAmt);
+      this.setState(`market_tvl:${market.id}`, nextTvl.toString());
+    } else if (event.type === "deposit" || event.type === "redeem" || event.type === "zap_in") {
+      // SY-wrapper deposit/redeem events (e.g. shared sy-bUSDC across markets or inside zap_in)
+      // and top-level zap_in wrappers must not inflate pool-specific TVL or double-count volume.
+      return;
+    }
+
+    if (ptPrice === null) {
+      const spotFromEvent =
+        typeof event.data?.spotPtPrice === "number" &&
+        Number.isFinite(event.data.spotPtPrice) &&
+        event.data.spotPtPrice > 0
+          ? event.data.spotPtPrice
+          : 0;
+      if (spotFromEvent > 0) {
+        ptPrice = spotFromEvent;
+      } else {
+        const latestPt = this.getLatestMarketPtPrice(market.id);
+        ptPrice = latestPt > 0 ? latestPt : (event.timestamp >= market.maturity ? 1.0 : 0);
+      }
+    }
+
+    if (ptPrice <= 0) {
+      return;
     }
 
     const tau = Math.max(0, market.maturity - event.timestamp) / 31536000;
-    const impliedApy = calculateImpliedApy(ptPrice, tau);
+    const impliedApy = ptPrice > 0 ? calculateImpliedApy(ptPrice, tau) : 0;
     const underlyingApy = market.underlyingApy;
     const updatedTvl = this.currentTvlByMarket.get(market.id) ?? currentTvl;
 
@@ -815,8 +1085,9 @@ export class EventStorage {
     `).get(marketId, interval, bucketTimestamp) as SnapshotDbRow | undefined;
 
     if (existing) {
+      const newOpen = existing.open_price <= 0 && price > 0 ? price : existing.open_price;
       const newHigh = Math.max(existing.high_price, price);
-      const newLow = Math.min(existing.low_price, price);
+      const newLow = existing.low_price <= 0 && price > 0 ? price : Math.min(existing.low_price, price);
       const newClose = price;
       let totalVolume = volumeSy;
       try {
@@ -828,6 +1099,7 @@ export class EventStorage {
 
       this.db.prepare(`
         UPDATE market_snapshots SET
+          open_price = ?,
           high_price = ?,
           low_price = ?,
           close_price = ?,
@@ -840,13 +1112,14 @@ export class EventStorage {
           trade_count = ?
         WHERE market_id = ? AND interval = ? AND bucket_timestamp = ?
       `).run(
+        newOpen,
         newHigh,
         newLow,
         newClose,
         impliedApy,
         underlyingApy,
         price,
-        Math.max(0.0, 1.0 - price),
+        price > 0 ? Math.max(0.0, 1.0 - price) : 0.0,
         totalVolume.toString(),
         tvlSy.toString(),
         newCount,
@@ -880,7 +1153,7 @@ export class EventStorage {
         impliedApy,
         underlyingApy,
         price,
-        Math.max(0.0, 1.0 - price),
+        price > 0 ? Math.max(0.0, 1.0 - price) : 0.0,
         volumeSy.toString(),
         tvlSy.toString(),
         1
@@ -903,7 +1176,7 @@ export class EventStorage {
                ledger_closed_at as ledgerClosedAt, timestamp, type, topic_symbol as topicSymbol,
                caller, receiver, data_json, raw_json as rawJson
         FROM events
-        WHERE type IN ('swap', 'liquidity', 'mint_py', 'redeem_py', 'redeem', 'deposit')
+        WHERE type IN ('swap', 'liquidity', 'mint_py', 'redeem_py', 'redeem', 'deposit', 'rate_updated')
         ORDER BY timestamp ASC, id ASC
       `).all() as (Omit<DecodedEvent, "data"> & { data_json: string })[];
 
@@ -1016,8 +1289,7 @@ export class EventStorage {
       SELECT close_price FROM market_snapshots WHERE market_id = ? ORDER BY bucket_timestamp DESC LIMIT 1
     `).get(marketId) as { close_price: number } | undefined;
     if (row && row.close_price > 0) return row.close_price;
-    const market = MARKETS[marketId] || resolveMarket(marketId);
-    return market ? market.baselinePtPrice : 0.98;
+    return 0;
   }
 
   /**
@@ -1025,12 +1297,44 @@ export class EventStorage {
    * cost basis, average entry APY, and realized PnL across active markets.
    */
   public recordEventUserPositions(event: DecodedEvent): void {
-    const user = (event.data?.user as string) || event.caller || event.receiver;
-    if (!user) return;
+    if (event.type === "zap_in") return;
 
-    const market = (event.data?.marketId ? resolveMarket(event.data.marketId as string) : null)
+    const explicitUser = typeof event.data?.user === "string" ? event.data.user.trim() : "";
+    const caller = (event.caller || "").trim();
+    const receiver = (event.receiver || "").trim();
+
+    const dir = event.type === "swap" ? Number(event.data?.direction ?? 0) : -1;
+    const isLiquidityAdd =
+      event.type === "liquidity" &&
+      scValToBoolean(event.data?.isAdd ?? event.data?.is_add);
+    const preferReceiver =
+      event.type === "mint_py" ||
+      isLiquidityAdd ||
+      (event.type === "swap" && (dir === 1 || dir === 2));
+
+    let user = "";
+    if (explicitUser && !explicitUser.startsWith("C")) {
+      user = explicitUser;
+    } else if (preferReceiver) {
+      if (receiver && !receiver.startsWith("C")) {
+        user = receiver;
+      } else if (caller && !caller.startsWith("C")) {
+        user = caller;
+      } else {
+        return;
+      }
+    } else if (caller && !caller.startsWith("C")) {
+      user = caller;
+    } else if (receiver && !receiver.startsWith("C")) {
+      user = receiver;
+    } else {
+      return;
+    }
+    if (!user || user.startsWith("C")) return;
+
+    const market: MarketMetadata = (event.data?.marketId ? resolveMarket(event.data.marketId as string) : null)
       || getMarketForContract(event.contractId)
-      || MARKETS["usdc-90d"];
+      || DEFAULT_MARKET;
 
     const timestamp = event.timestamp || Math.floor(Date.now() / 1000);
     const ledger = event.ledger || 0;
@@ -1063,9 +1367,14 @@ export class EventStorage {
         const newCostBasis = ptCostBasis + amtIn;
 
         const grossPtOut = amtOut + fee;
-        const spotPt = grossPtOut > 0n ? Number(amtIn) / Number(grossPtOut) : market.baselinePtPrice;
+        const rawEventPyIdx = event.data?.pyIndex ?? event.data?.py_index;
+        const pyIndex = rawEventPyIdx !== undefined && rawEventPyIdx !== null
+          ? scValToBigInt(rawEventPyIdx)
+          : this.getMarketPyIndex(market.id);
+        const assetIn = syToAssetBigInt(pyIndex, amtIn);
+        const spotPt = grossPtOut > 0n ? Number(assetIn) / Number(grossPtOut) : this.getLatestMarketPtPrice(market.id);
         const tau = Math.max(0, market.maturity - timestamp) / 31536000;
-        const tradeApy = calculateImpliedApy(spotPt, tau);
+        const tradeApy = spotPt > 0 ? calculateImpliedApy(spotPt, tau) : 0;
 
         if (totalTokens > 0n) {
           const weightedNumerator = avgEntryApy * Number(ptBal) + tradeApy * Number(newTokens);
@@ -1243,11 +1552,15 @@ export class EventStorage {
     amountIn: bigint;
     amountOut: bigint;
     fee: bigint;
+    pyIndex?: bigint;
     reservesSy?: bigint;
     reservesPt?: bigint;
     ledger?: number;
   }): void {
-    const market = resolveMarket(params.marketId) || MARKETS["usdc-90d"];
+    const market: MarketMetadata = resolveMarket(params.marketId) || DEFAULT_MARKET;
+    if (params.pyIndex && params.pyIndex > 0n) {
+      this.setMarketPyIndex(market.id, params.pyIndex);
+    }
     const event: DecodedEvent = {
       id: params.eventId || `swap_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       contractId: market.poolId,
@@ -1264,6 +1577,7 @@ export class EventStorage {
         amountIn: params.amountIn.toString(),
         amountOut: params.amountOut.toString(),
         fee: params.fee.toString(),
+        pyIndex: params.pyIndex ? params.pyIndex.toString() : undefined,
         marketId: market.id,
       },
       rawJson: "",
@@ -1284,9 +1598,13 @@ export class EventStorage {
     pyOut: bigint;
     timestamp: number;
     spotPtPrice?: number;
+    pyIndex?: bigint;
     ledger?: number;
   }): void {
-    const market = resolveMarket(params.marketId) || MARKETS["usdc-90d"];
+    const market: MarketMetadata = resolveMarket(params.marketId) || DEFAULT_MARKET;
+    if (params.pyIndex && params.pyIndex > 0n) {
+      this.setMarketPyIndex(market.id, params.pyIndex);
+    }
     const event: DecodedEvent = {
       id: params.eventId || `mint_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       contractId: market.poolId,
@@ -1302,6 +1620,7 @@ export class EventStorage {
         syIn: params.syIn.toString(),
         pyOut: params.pyOut.toString(),
         spotPtPrice: params.spotPtPrice,
+        pyIndex: params.pyIndex ? params.pyIndex.toString() : undefined,
         marketId: market.id,
       },
       rawJson: "",
@@ -1322,7 +1641,7 @@ export class EventStorage {
     timestamp: number;
     ledger?: number;
   }): void {
-    const market = resolveMarket(params.marketId) || MARKETS["usdc-90d"];
+    const market: MarketMetadata = resolveMarket(params.marketId) || DEFAULT_MARKET;
     const event: DecodedEvent = {
       id: params.eventId || `redeem_pt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       contractId: market.poolId,
@@ -1355,7 +1674,7 @@ export class EventStorage {
     timestamp: number;
     ledger?: number;
   }): void {
-    const market = resolveMarket(params.marketId) || MARKETS["usdc-90d"];
+    const market: MarketMetadata = resolveMarket(params.marketId) || DEFAULT_MARKET;
     const event: DecodedEvent = {
       id: params.eventId || `yield_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       contractId: market.ytId,
@@ -1425,7 +1744,7 @@ export class EventStorage {
     const now = Math.floor(Date.now() / 1000);
 
     for (const row of rows) {
-      const market = MARKETS[row.market_id] || resolveMarket(row.market_id) || MARKETS["usdc-90d"];
+      const market: MarketMetadata = MARKETS[row.market_id] || resolveMarket(row.market_id) || DEFAULT_MARKET;
       const ptBal = BigInt(row.pt_balance || "0");
       const ytBal = BigInt(row.yt_balance || "0");
       const lpBal = BigInt(row.lp_balance || "0");
@@ -1444,8 +1763,10 @@ export class EventStorage {
       ).get(row.market_id) as { close_price: number; yt_price: number } | undefined;
 
       const isMatured = now >= market.maturity;
-      const spotPt = isMatured ? 1.0 : (latestSnapshot ? latestSnapshot.close_price : market.baselinePtPrice);
-      const spotYt = isMatured ? 0.0 : (latestSnapshot ? latestSnapshot.yt_price : Math.max(0.0001, 1.0 - spotPt));
+      const spotPt = isMatured ? 1.0 : (latestSnapshot ? latestSnapshot.close_price : 0);
+      const spotYt = isMatured
+        ? 0.0
+        : (latestSnapshot ? latestSnapshot.yt_price : (spotPt > 0 ? Math.max(0.0001, 1.0 - spotPt) : 0));
 
       const ptValStroops = BigInt(Math.floor(Number(ptBal) * spotPt));
       const ytValStroops = BigInt(Math.floor(Number(ytBal) * spotYt));
@@ -1528,7 +1849,7 @@ export class EventStorage {
   public getMarketChart(marketParam: string, intervalParam: string = "1D"): MarketChartsResponse {
     const market = resolveMarket(marketParam);
     if (!market) {
-      throw new Error(`Market not found: ${marketParam}. Supported markets: usdc-90d, usdc-30d, xlm-90d or contract address.`);
+      throw new Error(`Market not found: ${marketParam}. Supported markets: usdc-90d, usdc-30d, xlm-90d, usdc-matured, usdc-slender-90d or contract address.`);
     }
 
     const intervalUpper = intervalParam.toUpperCase();
@@ -1596,9 +1917,33 @@ export class EventStorage {
       LIMIT 1
     `).get(market.id, interval, startBucket) as SnapshotDbRow | undefined;
 
-    let carryPrice = prevRow ? prevRow.close_price : market.baselinePtPrice;
-    let carryTvl = prevRow ? prevRow.tvl_sy : market.baselineTvlSy;
-    let carryUnderlyingApy = prevRow ? prevRow.underlying_apy : market.underlyingApy;
+    if (rows.length === 0 && !prevRow) {
+      return {
+        success: true,
+        market: market.id,
+        interval,
+        count: 0,
+        data: [],
+        summary: {
+          marketId: market.id,
+          interval,
+          highApy: 0,
+          lowApy: 0,
+          currentApy: 0,
+          highPrice: 0,
+          lowPrice: 0,
+          currentPrice: 0,
+          volumeTotal: "0",
+          currentTvl: "0",
+          tradesCount: 0,
+        },
+      };
+    }
+
+    const seedRow = prevRow ?? rows[0]!;
+    let carryPrice = seedRow.close_price;
+    let carryTvl = seedRow.tvl_sy;
+    let carryUnderlyingApy = seedRow.underlying_apy;
 
     const data: MarketChartPoint[] = [];
 
@@ -1629,8 +1974,8 @@ export class EventStorage {
       } else {
         // Forward fill from previous state
         const tau = Math.max(0, market.maturity - bucketTs) / 31536000;
-        const filledImpliedApy = calculateImpliedApy(carryPrice, tau);
-        const ytPrice = Math.max(0.0, 1.0 - carryPrice);
+        const filledImpliedApy = carryPrice > 0 ? calculateImpliedApy(carryPrice, tau) : 0;
+        const ytPrice = carryPrice > 0 ? Math.max(0.0, 1.0 - carryPrice) : 0;
 
         data.push({
           timestamp: bucketTs,
@@ -1730,7 +2075,7 @@ export class EventStorage {
         });
         if (res.changes > 0) {
           inserted++;
-          if (["swap", "liquidity", "mint_py", "redeem_py", "redeem", "deposit"].includes(e.type)) {
+          if (["swap", "liquidity", "mint_py", "redeem_py", "redeem", "deposit", "rate_updated"].includes(e.type)) {
             this.recordEventSnapshots(e);
           }
           if (["swap", "liquidity", "mint_py", "redeem_py", "redeem_pt", "yield_claimed"].includes(e.type)) {
@@ -1759,9 +2104,13 @@ export class EventStorage {
     type?: string;
     contractId?: string;
     order?: "ASC" | "DESC";
-  }): { total: number; events: DecodedEvent[] } {
-    const limit = Math.min(Math.max(options.limit ?? 50, 1), 500);
-    const offset = Math.max(options.offset ?? 0, 0);
+  }): { total: number; limit: number; offset: number; events: DecodedEvent[] } {
+    const rawLimit = options.limit;
+    const safeLimit = typeof rawLimit === "number" && Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 50;
+    const limit = Math.min(Math.max(safeLimit, 1), 500);
+    const rawOffset = options.offset;
+    const safeOffset = typeof rawOffset === "number" && Number.isFinite(rawOffset) ? Math.trunc(rawOffset) : 0;
+    const offset = Math.max(safeOffset, 0);
     const order = options.order === "ASC" ? "ASC" : "DESC";
 
     const whereClauses: string[] = [];
@@ -1816,7 +2165,7 @@ export class EventStorage {
       };
     });
 
-    return { total, events };
+    return { total, limit, offset, events };
   }
 
   public getStats(): {
@@ -1863,6 +2212,8 @@ export class EventStorage {
   }
 
   public getSparkline(limit: number = 24): { bucket: string; count: number }[] {
+    const safeLimit = typeof limit === "number" && Number.isFinite(limit) ? Math.trunc(limit) : 24;
+    const clampedLimit = Math.min(Math.max(safeLimit, 1), 168);
     const rows = this.db.prepare(`
       SELECT strftime('%Y-%m-%dT%H:00:00Z', datetime(timestamp, 'unixepoch')) as bucket,
              COUNT(*) as count
@@ -1870,13 +2221,13 @@ export class EventStorage {
       GROUP BY bucket
       ORDER BY bucket DESC
       LIMIT ?
-    `).all(limit) as { bucket: string; count: number }[];
+    `).all(clampedLimit) as { bucket: string; count: number }[];
 
     return rows.reverse();
   }
 
   public close(): void {
-    this.db.close();
+    this.db.close(true);
   }
 }
 
@@ -1900,13 +2251,53 @@ export class PersistentIndexer {
 
   constructor(storage: EventStorage, rpcUrl: string = RPC_URL) {
     this.storage = storage;
-    this.rpcServer = new rpc.Server(rpcUrl);
+    this.rpcServer = new rpc.Server(rpcUrl, { allowHttp: rpcUrl.startsWith("http://") });
 
     // Restore state from database
     const savedCursor = this.storage.getState("last_cursor");
     const savedLedger = this.storage.getState("last_indexed_ledger");
     if (savedCursor) this.cursor = savedCursor;
     if (savedLedger) this.lastIndexedLedger = parseInt(savedLedger, 10) || 0;
+  }
+
+  public async fetchMarketPyIndex(ytContractId: string): Promise<bigint> {
+    try {
+      const account = new Account("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF", "0");
+      const contract = new Contract(ytContractId);
+      const tx = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: process.env.STELLAR_NETWORK_PASSPHRASE || Networks.TESTNET,
+      })
+        .addOperation(contract.call("get_py_index"))
+        .setTimeout(30)
+        .build();
+
+      const sim = await this.rpcServer.simulateTransaction(tx);
+      if (!rpc.Api.isSimulationSuccess(sim) || !sim.result?.retval) {
+        return 0n;
+      }
+      let nativeRet: unknown = sim.result.retval;
+      try {
+        nativeRet = scValToNative(sim.result.retval);
+      } catch {
+        // Fallback if mocked retval is already native
+      }
+      const val = scValToBigInt(nativeRet);
+      return val > 0n ? val : 0n;
+    } catch {
+      return 0n;
+    }
+  }
+
+  public async syncMarketPyIndices(): Promise<void> {
+    await Promise.all(
+      Object.values(MARKETS).map(async (m) => {
+        const pyIdx = await this.fetchMarketPyIndex(m.ytId);
+        if (pyIdx > 0n) {
+          this.storage.setMarketPyIndex(m.id, pyIdx);
+        }
+      })
+    );
   }
 
   public async start(): Promise<void> {
@@ -1954,6 +2345,9 @@ export class PersistentIndexer {
     } catch (err) {
       console.warn("[Indexer] Failed to query getLatestLedger:", err);
     }
+
+    // Refresh PyIndex per market via yt_token.get_py_index() RPC simulation
+    await this.syncMarketPyIndices();
 
     const filterChunks = chunkContractFilters(ALL_CONTRACT_IDS);
     let hasMorePages = true;
@@ -2083,7 +2477,19 @@ export class PersistentIndexer {
 // 6. HTTP REST API (`Bun.serve`)
 // ============================================================================
 
-export function startHttpServer(storage: EventStorage, indexer: PersistentIndexer) {
+function parseQueryIntParam(raw: string | null, defaultValue: number): number | null {
+  if (raw === null || raw.trim() === "") return defaultValue;
+  const trimmed = raw.trim();
+  if (!/^-?\d+$/.test(trimmed)) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+export function startHttpServer(
+  storage: EventStorage,
+  indexer: PersistentIndexer,
+  port: number = resolveHttpPort()
+) {
   const corsHeaders: Record<string, string> = {
     "Content-Type": "application/json",
     ...(INDEXER_API_SECRET.length === 0
@@ -2097,7 +2503,7 @@ export function startHttpServer(storage: EventStorage, indexer: PersistentIndexe
 
   const server = Bun.serve({
     hostname: HTTP_HOST,
-    port: HTTP_PORT,
+    port,
     fetch(req) {
       const url = new URL(req.url);
 
@@ -2154,7 +2560,14 @@ export function startHttpServer(storage: EventStorage, indexer: PersistentIndexe
 
       // GET /analytics/sparkline
       if (url.pathname === "/analytics/sparkline") {
-        const limitParam = parseInt(url.searchParams.get("limit") || "24", 10);
+        const parsedLimit = parseQueryIntParam(url.searchParams.get("limit"), 24);
+        if (parsedLimit === null) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Invalid integer parameter: limit" }),
+            { status: 400, headers: corsHeaders }
+          );
+        }
+        const limitParam = Math.min(Math.max(parsedLimit, 1), 168);
         const sparkline = storage.getSparkline(limitParam);
         return new Response(
           JSON.stringify(
@@ -2171,8 +2584,16 @@ export function startHttpServer(storage: EventStorage, indexer: PersistentIndexe
 
       // GET /events
       if (url.pathname === "/events") {
-        const limit = parseInt(url.searchParams.get("limit") || "50", 10);
-        const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+        const parsedLimit = parseQueryIntParam(url.searchParams.get("limit"), 50);
+        const parsedOffset = parseQueryIntParam(url.searchParams.get("offset"), 0);
+        if (parsedLimit === null || parsedOffset === null) {
+          return new Response(
+            JSON.stringify({ success: false, error: "Invalid integer parameter: limit/offset" }),
+            { status: 400, headers: corsHeaders }
+          );
+        }
+        const limit = Math.min(Math.max(parsedLimit, 1), 500);
+        const offset = Math.max(parsedOffset, 0);
         const type = url.searchParams.get("type") || undefined;
         const contractId = url.searchParams.get("contractId") || undefined;
         const order = url.searchParams.get("order")?.toUpperCase() === "ASC" ? "ASC" : "DESC";
@@ -2185,8 +2606,8 @@ export function startHttpServer(storage: EventStorage, indexer: PersistentIndexe
               success: true,
               count: result.events.length,
               total: result.total,
-              limit,
-              offset,
+              limit: result.limit,
+              offset: result.offset,
               events: result.events,
             },
             null,
@@ -2264,7 +2685,7 @@ export function startHttpServer(storage: EventStorage, indexer: PersistentIndexe
     },
   });
 
-  console.log(`[HTTP] Soroban Indexer API listening at http://${HTTP_HOST}:${HTTP_PORT}`);
+  console.log(`[HTTP] Soroban Indexer API listening at http://${HTTP_HOST}:${server.port}`);
   return server;
 }
 

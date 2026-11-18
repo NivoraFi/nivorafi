@@ -186,6 +186,40 @@ export const PRESET_MARKETS: MarketDefinition[] = [
     isRegisteredOnChain: true,
     isVerifiedTestnet: true,
   },
+  {
+    id: "usdc-slender-90d",
+    factoryId: 5,
+    name: "Pendle sUSDC PT 90D (Slender)",
+    ptSymbol: "PT-sUSDC-90D",
+    ytSymbol: "YT-sUSDC-90D",
+    sySymbol: "sy-sUSDC",
+    lpSymbol: "LP-sUSDC-90D",
+    asset: KNOWN_ASSETS.USDC,
+    tenor: "90D",
+    maturity: 1801909057, // 2027-02-06T10:17:37Z
+    maturityIso: "2027-02-06T10:17:37Z",
+    scalarRoot: "8000000000000000000",
+    initialAnchor: "1000000000000000000",
+    contracts: {
+      poolId:
+        process.env.NEXT_PUBLIC_SUSDC_POOL_CONTRACT_ID ||
+        "CACPNCMRPCYXT2IFNAIYY7DVTZARI2HFKIFMX2LBUTJ3YU6Z6QVBQDC5",
+      syId:
+        process.env.NEXT_PUBLIC_SUSDC_SY_CONTRACT_ID ||
+        "CA5Q7BXAPRO3XULUEDTFVFZU2ZU2N7Z6CLZNQW7WDDKVJV6776DGHPCJ",
+      ptId:
+        process.env.NEXT_PUBLIC_SUSDC_PT_CONTRACT_ID ||
+        "CBNRSIS3ACCYL7ORHU6XP3YGMEBLZAJN3HOWSJIFAYBH7I7VIZUGSIK5",
+      ytId:
+        process.env.NEXT_PUBLIC_SUSDC_YT_CONTRACT_ID ||
+        "CCKMWQO2HNOP3L6CZU73KNEZLN3XVZ7EWAMCA77CAYY5FW3XZWO6DPCA",
+      blendPoolId:
+        process.env.NEXT_PUBLIC_SLENDER_POOL_CONTRACT_ID ||
+        "CBZAIQZCWK6AWE3UHLC7EZUSDPBOS767LA5TAASK4SSLZRNAYHKPBYRS",
+    },
+    isRegisteredOnChain: Boolean(process.env.NEXT_PUBLIC_SUSDC_POOL_CONTRACT_ID),
+    isVerifiedTestnet: Boolean(process.env.NEXT_PUBLIC_SUSDC_POOL_CONTRACT_ID),
+  },
 ];
 
 export function deriveMarketStatus(
@@ -305,7 +339,7 @@ export function getDefaultMarket(): MarketDefinition {
 export function getAssetPriceUsd(code: AssetCode): number {
   switch (code) {
     case "XLM":
-      return 0.38;
+      return 0.12;
     case "EURC":
       return 1.08;
     case "USDC":
@@ -480,6 +514,7 @@ export function filterAndSortMarkets(
       const matchName = market.name.toLowerCase().includes(normSearch);
       const matchPtSymbol = market.ptSymbol.toLowerCase().includes(normSearch);
       const matchYtSymbol = market.ytSymbol.toLowerCase().includes(normSearch);
+      const matchSySymbol = market.sySymbol.toLowerCase().includes(normSearch);
       const matchAsset = market.asset.code.toLowerCase().includes(normSearch);
       const matchTenor = market.tenor.toLowerCase().includes(normSearch);
       const matchId = market.id.toLowerCase().includes(normSearch);
@@ -496,6 +531,7 @@ export function filterAndSortMarkets(
         !matchName &&
         !matchPtSymbol &&
         !matchYtSymbol &&
+        !matchSySymbol &&
         !matchAsset &&
         !matchTenor &&
         !matchId &&

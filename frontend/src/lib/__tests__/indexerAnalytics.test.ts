@@ -17,7 +17,6 @@ import {
   fetchUserPositionData,
   convertToChartDataPoints,
   convertToApyDataPoints,
-  synthesizeFallbackChart,
   buildEmptyPositionsSummary,
   buildEmptyUserPositions,
   buildEmptyChartResponse,
@@ -213,97 +212,35 @@ describe("Indexer Analytics Client Library & React Hook Suite", () => {
   });
 
   // ==========================================================================
-  // 2. Offline Synthetic Fallback Generator
+  // 2. Honest Empty Chart & Position Response Builders (No Synthetic Curves)
   // ==========================================================================
-  describe("2. Offline Synthetic Fallback Generator (synthesizeFallbackChart)", () => {
-    it("synthesizes valid 24-bucket chart for 1D interval on usdc-90d", () => {
-      const market = getMockMarket("usdc-90d");
-      const chart = synthesizeFallbackChart(market, "1D");
-
-      expect(chart.success).toBe(true);
-      expect(chart.market).toBe("usdc-90d");
-      expect(chart.interval).toBe("1D");
-      expect(chart.count).toBe(24);
-      expect(chart.data.length).toBe(24);
-
-      // Verify buckets are chronologically ordered by 1 hour (3600s)
-      for (let i = 1; i < chart.data.length; i++) {
-        expect(chart.data[i].timestamp - chart.data[i - 1].timestamp).toBe(3600);
+  describe("2. Honest Empty Chart & Position Builders", () => {
+    it("buildEmptyChartResponse returns zero counts and empty array for every interval", () => {
+      for (const interval of ["1D", "1W", "1M", "ALL"] as MarketChartInterval[]) {
+        const empty = buildEmptyChartResponse("usdc-90d", interval);
+        expect(empty.success).toBe(true);
+        expect(empty.market).toBe("usdc-90d");
+        expect(empty.interval).toBe(interval);
+        expect(empty.count).toBe(0);
+        expect(empty.data).toEqual([]);
+        expect(empty.summary).toEqual({
+          volume24h: 0,
+          volume7d: 0,
+          tvl: 0,
+          highApy: 0,
+          lowApy: 0,
+        });
       }
-
-      // Verify points have valid financial numbers
-      const first = chart.data[0];
-      expect(first.ptPrice).toBeGreaterThan(0.9);
-      expect(first.ptPrice).toBeLessThanOrEqual(1.0);
-      expect(first.ytPrice).toBeGreaterThan(0);
-      expect(first.ytPrice).toBeLessThan(0.1);
-      expect(first.impliedApyPct).toBeGreaterThan(0);
-      expect(first.underlyingApyPct).toBe(4.85);
-
-      // Verify summary matches
-      expect(chart.summary.marketId).toBe("usdc-90d");
-      expect(chart.summary.interval).toBe("1D");
-      expect(chart.summary.currentApy).toBeGreaterThan(0);
-      expect(chart.summary.currentPrice).toBeGreaterThan(0.9);
-      expect(chart.summary.tvl).toBeGreaterThan(0);
     });
 
-    it("synthesizes valid 168-bucket chart for 1W interval", () => {
-      const market = getMockMarket("usdc-90d");
-      const chart = synthesizeFallbackChart(market, "1W");
-
-      expect(chart.count).toBe(168);
-      expect(chart.data.length).toBe(168);
-      expect(chart.interval).toBe("1W");
-      expect(chart.data[1].timestamp - chart.data[0].timestamp).toBe(3600);
-    });
-
-    it("synthesizes valid 30-bucket chart for 1M interval", () => {
-      const market = getMockMarket("usdc-90d");
-      const chart = synthesizeFallbackChart(market, "1M");
-
-      expect(chart.count).toBe(30);
-      expect(chart.data.length).toBe(30);
-      expect(chart.interval).toBe("1M");
-      expect(chart.data[1].timestamp - chart.data[0].timestamp).toBe(86400);
-    });
-
-    it("synthesizes valid 30-bucket chart for ALL interval", () => {
-      const market = getMockMarket("xlm-90d");
-      const chart = synthesizeFallbackChart(market, "ALL");
-
-      expect(chart.count).toBe(30);
-      expect(chart.data.length).toBe(30);
-      expect(chart.interval).toBe("ALL");
-      expect(chart.data[0].underlyingApyPct).toBe(3.2); // XLM rate
-    });
-
-    it("handles matured market usdc-matured with PT=1.0 and YT=0.0", () => {
-      const maturedMarket = getMockMarket("usdc-matured");
-      const chart = synthesizeFallbackChart(maturedMarket, "1D");
-
-      expect(chart.count).toBe(24);
-      expect(chart.summary.currentPrice).toBe(1.0);
-      expect(chart.summary.currentPtPrice).toBe(1.0);
-      expect(chart.summary.currentYtPrice).toBe(0.0);
-      expect(chart.summary.currentImpliedApy).toBe(0.0);
-
-      const latestPoint = chart.data[chart.data.length - 1];
-      expect(latestPoint.ptPrice).toBe(1.0);
-      expect(latestPoint.ytPrice).toBe(0.0);
-      expect(latestPoint.impliedApyPct).toBe(0.0);
-
-      // Fully matured market across entire 1D window
-      const fullyMatured = {
-        ...maturedMarket,
-        maturity: Math.floor(Date.now() / 1000) - 86400 * 2,
-      };
-      const fullChart = synthesizeFallbackChart(fullyMatured, "1D");
-      for (const pt of fullChart.data) {
-        expect(pt.ptPrice).toBe(1.0);
-        expect(pt.ytPrice).toBe(0.0);
-        expect(pt.impliedApyPct).toBe(0.0);
-      }
+    it("buildEmptyUserPositions returns zeroed summary and empty positions array", () => {
+      const emptyPos = buildEmptyUserPositions(TEST_USER);
+      expect(emptyPos.success).toBe(true);
+      expect(emptyPos.user).toBe(TEST_USER);
+      expect(emptyPos.count).toBe(0);
+      expect(emptyPos.positions).toEqual([]);
+      expect(emptyPos.summary.totalCurrentValueUsd).toBe(0);
+      expect(emptyPos.summary.activePositionsCount).toBe(0);
     });
   });
 

@@ -273,6 +273,9 @@
                 },
                 {
                   "i128": "100000000"
+                },
+                {
+                  "u64": "15552000"
                 }
               ]
             }
@@ -320,6 +323,9 @@
                 },
                 {
                   "i128": "100000000"
+                },
+                {
+                  "u64": "15552000"
                 }
               ]
             }
@@ -367,6 +373,9 @@
                 },
                 {
                   "i128": "1000000000"
+                },
+                {
+                  "u64": "15552000"
                 }
               ]
             }
@@ -485,6 +494,9 @@
                 },
                 {
                   "i128": "50000000000"
+                },
+                {
+                  "u64": "15552000"
                 }
               ]
             }
@@ -1213,7 +1225,7 @@
                         ]
                       },
                       "val": {
-                        "string": "Standardized Yield Blend USDC"
+                        "string": "Standardized Yield Blend aaa"
                       }
                     },
                     {
@@ -1225,7 +1237,7 @@
                         ]
                       },
                       "val": {
-                        "string": "sy-bUSDC"
+                        "string": "sy-baaa"
                       }
                     },
                     {
@@ -1408,7 +1420,7 @@
                         ]
                       },
                       "val": {
-                        "string": "Pendle LP Token"
+                        "string": "NivoraFi LP aaa"
                       }
                     },
                     {
@@ -1433,6 +1445,18 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "PtPrincipalReserve"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "51200000000"
                       }
                     },
                     {
@@ -1468,7 +1492,7 @@
                         ]
                       },
                       "val": {
-                        "string": "LP-PT-SY"
+                        "string": "LP-aaa"
                       }
                     },
                     {
@@ -1517,6 +1541,18 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "YtYieldReserve"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
                       }
                     }
                   ]
@@ -1824,6 +1860,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "GlobalAccruedYield"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "Initialized"
                           }
                         ]
@@ -1842,6 +1890,18 @@
                       },
                       "val": {
                         "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "LastKnownIndex"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "1000000000"
                       }
                     },
                     {
@@ -1914,6 +1974,18 @@
                       },
                       "val": {
                         "i128": "51200000000"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "TotalYieldWeight"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "51200000000000000000"
                       }
                     }
                   ]
@@ -2256,76 +2328,5 @@
       }
     ]
   },
-  "events": [
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON",
-        "type": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "transfer_event"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
-              }
-            ],
-            "data": {
-              "map": [
-                {
-                  "key": {
-                    "symbol": "amount"
-                  },
-                  "val": {
-                    "i128": "10"
-                  }
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": true
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM",
-        "type": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "transfer_event"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
-              }
-            ],
-            "data": {
-              "map": [
-                {
-                  "key": {
-                    "symbol": "amount"
-                  },
-                  "val": {
-                    "i128": "50000000000"
-                  }
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": true
-    }
-  ]
+  "events": []
 }

@@ -1,0 +1,15 @@
+[package]
+name = "mock_slender"
+version = "0.1.0"
+edition = "2021"
+description = "Mock Slender Protocol lending pool and sToken for Stellar Pendle"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+common = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

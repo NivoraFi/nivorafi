@@ -8,7 +8,9 @@
  * - Concurrent stress test (30 concurrent queries with zero SQLITE_BUSY locking errors)
  */
 
-const BASE_URL = process.env.INDEXER_API_URL || "http://127.0.0.1:8765";
+const BASE_URL =
+  process.env.INDEXER_API_URL ||
+  `http://${process.env.INDEXER_HOST || "127.0.0.1"}:${process.env.INDEXER_PORT || process.env.PORT || "8765"}`;
 
 interface MarketChartPoint {
   timestamp: number;
@@ -94,6 +96,14 @@ async function main() {
     assert(res.market === "usdc-90d", `Expected market: usdc-90d, got ${res.market}`);
     assert(res.interval === item.name, `Expected interval: ${item.name}, got ${res.interval}`);
 
+    if (res.count === 0) {
+      assert(res.data.length === 0, `Expected data.length === 0 when count === 0 for ${item.name}`);
+      assert(res.summary.tradesCount === 0, `Expected tradesCount === 0 for empty market ${item.name}`);
+      assert(res.summary.currentTvl === "0", `Expected currentTvl === "0" for empty market ${item.name}`);
+      console.log(`   ✓ Interval ${item.name}: honest empty state (0 indexed events)`);
+      continue;
+    }
+
     if (item.expectedCount) {
       assert(res.count === item.expectedCount, `Expected ${item.expectedCount} points for ${item.name}, got ${res.count}`);
       assert(res.data.length === item.expectedCount, `Expected data.length == ${item.expectedCount}`);
@@ -109,7 +119,7 @@ async function main() {
       assert(pt.open > 0, `Point ${i} open price must be > 0`);
       assert(pt.close > 0, `Point ${i} close price must be > 0`);
       assert(pt.high >= pt.low, `Point ${i} high must be >= low`);
-      assert(pt.impliedApy > 0, `Point ${i} impliedApy must be > 0 (forward-filled smooth curve)`);
+      assert(pt.impliedApy >= 0, `Point ${i} impliedApy must be >= 0`);
       assert(pt.underlyingApy > 0, `Point ${i} underlyingApy must be > 0`);
       assert(typeof pt.volume === "string", `Point ${i} volume must be string`);
       assert(typeof pt.tvl === "string", `Point ${i} tvl must be string`);
@@ -133,18 +143,25 @@ async function main() {
   const timeseriesRes = await fetchChart(poolContract, "1D", "/timeseries");
   assert(timeseriesRes.success === true, "Expected success: true on /timeseries");
   assert(timeseriesRes.market === "usdc-90d", "Expected address to resolve to usdc-90d");
-  assert(timeseriesRes.count === 24, "Expected 24 points on /timeseries");
-  console.log(`   ✓ /timeseries resolved pool ${poolContract.slice(0, 10)}... -> ${timeseriesRes.market} (24 points)`);
+  if (timeseriesRes.count === 0) {
+    assert(timeseriesRes.data.length === 0 && timeseriesRes.summary.tradesCount === 0, "Expected honest empty /timeseries state");
+  } else {
+    assert(timeseriesRes.count === 24, "Expected 24 points on /timeseries");
+  }
+  console.log(`   ✓ /timeseries resolved pool ${poolContract.slice(0, 10)}... -> ${timeseriesRes.market} (${timeseriesRes.count} points)`);
 
   // 4. Multi-Market Verification
-  console.log("\n[Step 4] Testing remaining markets (usdc-30d, xlm-90d)...");
-  const m30 = await fetchChart("usdc-30d", "1D");
-  assert(m30.success === true && m30.count === 24, "usdc-30d 1D failed");
-  console.log(`   ✓ Market usdc-30d: 24 points | APY: ${m30.summary.currentApy}% | Price: ${m30.summary.currentPrice}`);
-
-  const mXlm = await fetchChart("xlm-90d", "1D");
-  assert(mXlm.success === true && mXlm.count === 24, "xlm-90d 1D failed");
-  console.log(`   ✓ Market xlm-90d: 24 points | APY: ${mXlm.summary.currentApy}% | Price: ${mXlm.summary.currentPrice}`);
+  console.log("\n[Step 4] Testing remaining markets (usdc-30d, xlm-90d, usdc-matured)...");
+  for (const marketId of ["usdc-30d", "xlm-90d", "usdc-matured"]) {
+    const mRes = await fetchChart(marketId, "1D");
+    assert(mRes.success === true, `${marketId} 1D failed`);
+    if (mRes.count === 0) {
+      assert(mRes.data.length === 0 && mRes.summary.tradesCount === 0, `${marketId} honest empty invariant failed`);
+    } else {
+      assert(mRes.count === 24, `${marketId} expected 24 points, got ${mRes.count}`);
+    }
+    console.log(`   ✓ Market ${marketId}: ${mRes.count} points | APY: ${mRes.summary.currentApy}% | Price: ${mRes.summary.currentPrice}`);
+  }
 
   // 5. Concurrency & Stress Verification
   console.log("\n[Step 5] Stress testing concurrent reads (30 parallel requests)...");

@@ -584,5 +584,11 @@ describe("Historical Analytics & Metrics Derivation Engine Suite", () => {
         expect(b.value).toBeGreaterThan(0);
       }
     });
+
+    it("returns empty array when no swap events exist (zero synthetic fallback)", () => {
+      const now = 200000;
+      const maturity = now + 7776000;
+      expect(generateApySparkline([], maturity, 24, now)).toEqual([]);
+    });
   });
 });

@@ -26,7 +26,7 @@ export async function GET(
   }
 
   const upstreamBase = (
-    process.env.INDEXER_INTERNAL_URL || "http://127.0.0.1:3001"
+    process.env.INDEXER_INTERNAL_URL || "http://127.0.0.1:8765"
   ).replace(/\/+$/, "");
   const secret = (process.env.INDEXER_API_SECRET || "").trim();
 
@@ -52,6 +52,15 @@ export async function GET(
     });
 
     const bodyText = await upstreamRes.text();
+    try {
+      JSON.parse(bodyText);
+    } catch {
+      return NextResponse.json(
+        { success: false, status: "offline", error: "Indexer upstream returned invalid JSON" },
+        { status: 502, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
     const cacheHeader =
       joinedPath === "positions"
         ? "private, no-store"

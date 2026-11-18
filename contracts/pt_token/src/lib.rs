@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(clippy::too_many_arguments)]
 
 use common::errors::ContractError;
 use common::events::{ApproveEvent, BurnEvent, MintEvent, TransferEvent};
@@ -12,6 +13,39 @@ mod test;
 #[contract]
 pub struct PrincipalToken;
 
+impl PrincipalToken {
+    fn init_internal(
+        env: &Env,
+        auth_caller: &Address,
+        admin: &Address,
+        market: &Address,
+        name: &String,
+        symbol: &String,
+        decimals: u32,
+        maturity: u64,
+    ) -> Result<(), ContractError> {
+        if env.storage().instance().has(&DataKey::Initialized) {
+            return Err(ContractError::AlreadyInitialized);
+        }
+        auth_caller.require_auth();
+        if maturity <= env.ledger().timestamp() {
+            return Err(ContractError::InvalidMaturity);
+        }
+
+        env.storage().instance().set(&DataKey::Admin, admin);
+        env.storage().instance().set(&DataKey::Market, market);
+        env.storage().instance().set(&DataKey::Name, name);
+        env.storage().instance().set(&DataKey::Symbol, symbol);
+        env.storage().instance().set(&DataKey::Decimals, &decimals);
+        env.storage().instance().set(&DataKey::Maturity, &maturity);
+        env.storage().instance().set(&DataKey::TotalSupply, &0i128);
+        env.storage().instance().set(&DataKey::Initialized, &true);
+
+        bump_instance_ttl(env, maturity);
+        Ok(())
+    }
+}
+
 #[contractimpl]
 impl PrincipalToken {
     pub fn initialize(
@@ -23,25 +57,29 @@ impl PrincipalToken {
         decimals: u32,
         maturity: u64,
     ) -> Result<(), ContractError> {
-        if env.storage().instance().has(&DataKey::Initialized) {
-            return Err(ContractError::AlreadyInitialized);
-        }
-        admin.require_auth();
-        if maturity <= env.ledger().timestamp() {
-            return Err(ContractError::InvalidMaturity);
-        }
+        Self::init_internal(&env, &admin, &admin, &market, &name, &symbol, decimals, maturity)
+    }
 
-        env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::Market, &market);
-        env.storage().instance().set(&DataKey::Name, &name);
-        env.storage().instance().set(&DataKey::Symbol, &symbol);
-        env.storage().instance().set(&DataKey::Decimals, &decimals);
-        env.storage().instance().set(&DataKey::Maturity, &maturity);
-        env.storage().instance().set(&DataKey::TotalSupply, &0i128);
-        env.storage().instance().set(&DataKey::Initialized, &true);
-
-        bump_instance_ttl(&env, maturity);
-        Ok(())
+    pub fn initialize_from_factory(
+        env: Env,
+        deployer: Address,
+        admin: Address,
+        market: Address,
+        name: String,
+        symbol: String,
+        decimals: u32,
+        maturity: u64,
+    ) -> Result<(), ContractError> {
+        Self::init_internal(
+            &env,
+            &deployer,
+            &admin,
+            &market,
+            &name,
+            &symbol,
+            decimals,
+            maturity,
+        )
     }
 
     pub fn mint(env: Env, to: Address, amount: i128) -> Result<(), ContractError> {

@@ -8,6 +8,57 @@ pub const MAX_MARKET_PROPORTION: i128 = 960_000_000_000_000_000; // 0.96 WAD (96
 pub const MIN_FEE_RATE: i128 = 200_000_000_000_000; // 2 bps (0.0002 WAD)
 pub const MAX_FEE_RATE: i128 = 10_000_000_000_000_000; // 100 bps (0.01 WAD)
 
+pub fn sy_to_asset(py_index: i128, sy_amount: i128) -> Result<i128, ContractError> {
+    if py_index <= 0 {
+        return Err(ContractError::InvalidRate);
+    }
+    if sy_amount < 0 {
+        return Err(ContractError::ZeroAmount);
+    }
+    if sy_amount == 0 {
+        return Ok(0);
+    }
+    let prod = sy_amount
+        .checked_mul(py_index)
+        .ok_or(ContractError::MathOverflow)?;
+    Ok(prod / crate::fixed_point::SCALAR_9)
+}
+
+pub fn asset_to_sy(py_index: i128, asset_amount: i128) -> Result<i128, ContractError> {
+    if py_index <= 0 {
+        return Err(ContractError::InvalidRate);
+    }
+    if asset_amount < 0 {
+        return Err(ContractError::ZeroAmount);
+    }
+    if asset_amount == 0 {
+        return Ok(0);
+    }
+    let prod = asset_amount
+        .checked_mul(crate::fixed_point::SCALAR_9)
+        .ok_or(ContractError::MathOverflow)?;
+    Ok(prod / py_index)
+}
+
+pub fn asset_to_sy_ceil(py_index: i128, asset_amount: i128) -> Result<i128, ContractError> {
+    if py_index <= 0 {
+        return Err(ContractError::InvalidRate);
+    }
+    if asset_amount < 0 {
+        return Err(ContractError::ZeroAmount);
+    }
+    if asset_amount == 0 {
+        return Ok(0);
+    }
+    let prod = asset_amount
+        .checked_mul(crate::fixed_point::SCALAR_9)
+        .ok_or(ContractError::MathOverflow)?;
+    let num = prod
+        .checked_add(py_index - 1)
+        .ok_or(ContractError::MathOverflow)?;
+    Ok(num / py_index)
+}
+
 pub fn calculate_tau_wad(now: u64, maturity: u64) -> i128 {
     if maturity <= now {
         return 0;
@@ -71,8 +122,33 @@ pub fn calculate_haircut(
     if total_pt_supply <= 0 {
         return Err(ContractError::DivisionByZero);
     }
+    if vault_balance <= 0 {
+        return Ok(0);
+    }
     let ratio = wad_div(vault_balance, total_pt_supply)?;
     Ok(ratio.min(WAD))
+}
+
+/// Computes uncapped pro-rata share `floor(amount * available / total_supply)` clamped to `[0, available]`.
+/// Supports `available > total_supply` (e.g. `py_index < SCALAR_9` or post-maturity appreciation) without stranding SY.
+pub fn calculate_pro_rata_share(
+    amount: i128,
+    available: i128,
+    total_supply: i128,
+) -> Result<i128, ContractError> {
+    if total_supply <= 0 {
+        return Err(ContractError::DivisionByZero);
+    }
+    if available <= 0 || amount <= 0 {
+        return Ok(0);
+    }
+    if amount >= total_supply {
+        return Ok(available);
+    }
+    match (amount as u128).checked_mul(available as u128) {
+        Some(prod) => Ok((prod / (total_supply as u128)) as i128),
+        None => Ok(wad_mul(amount, wad_div(available, total_supply)?)?.min(available)),
+    }
 }
 
 pub fn check_market_proportion(pt_reserve: i128, sy_reserve: i128) -> Result<(), ContractError> {

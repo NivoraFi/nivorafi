@@ -6,14 +6,15 @@ use common::events::{
     ApproveEvent, BurnEvent, FeeRecipientEvent, LiquidityEvent, MaturitySettledEvent, MintPyEvent,
     RedeemPtEvent, RedeemPyEvent, SwapEvent, TransferEvent, YieldClaimedEvent,
 };
-use common::fixed_point::{wad_div, wad_mul, WAD};
-use common::interfaces::{PrivilegedTokenClient, StandardizedYieldClient};
+use common::fixed_point::{pos_sub, wad_div, wad_div_ceil, wad_mul, WAD};
+use common::interfaces::{PrivilegedTokenClient, StandardizedYieldClient, YieldTokenClient};
 use common::reentrancy::with_non_reentrant;
 use common::storage_keys::{AllowanceKey, AllowanceValue, DataKey, MarketState};
 use common::ttl::{bump_allowance_ttl, bump_instance_ttl, bump_persistent_ttl};
 use common::yield_math::{
-    calculate_fee_rate, calculate_haircut, calculate_tau_wad, check_market_proportion,
-    get_exchange_rate, swap_exact_pt_for_sy_math, swap_exact_sy_for_pt_math,
+    asset_to_sy, asset_to_sy_ceil, calculate_fee_rate, calculate_pro_rata_share,
+    calculate_tau_wad, check_market_proportion, get_exchange_rate, swap_exact_pt_for_sy_math,
+    swap_exact_sy_for_pt_math, sy_to_asset,
 };
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String};
 
@@ -35,18 +36,310 @@ fn int_sqrt_u128(y: u128) -> i128 {
     z as i128
 }
 
+struct PreMaturityCtx {
+    maturity: u64,
+    sy_addr: Address,
+    pt_addr: Address,
+    yt_addr: Address,
+    pt_res: i128,
+    sy_res: i128,
+    scalar_root: i128,
+    anchor: i128,
+    tau_wad: i128,
+    fee_rate: i128,
+}
+
 #[contract]
 pub struct YieldPool;
 
-#[contractimpl]
-#[allow(clippy::too_many_arguments)]
 impl YieldPool {
-    pub fn initialize(
-        env: Env,
-        admin: Address,
-        sy: Address,
-        pt: Address,
-        yt: Address,
+    #[inline(never)]
+    fn sub_reserve(a: i128, b: i128) -> Result<i128, ContractError> {
+        if a < b {
+            Err(ContractError::InsufficientBalance)
+        } else {
+            Ok(a - b)
+        }
+    }
+
+    #[inline(never)]
+    fn require_pt_solvent(
+        env: &Env,
+        sy_client: &StandardizedYieldClient,
+        yt_client: &YieldTokenClient,
+        pt_client: &PrivilegedTokenClient,
+        rate: i128,
+        total_sy_reserve: i128,
+        py_index: i128,
+    ) -> Result<(i128, i128, i128), ContractError> {
+        let (vault_balance, _, yt_reserved_sy) =
+            Self::sync_py_reserves(env, sy_client, yt_client, rate)?;
+        let pt_supply = pt_client.total_supply();
+        let required_pt_sy = if pt_supply > 0 {
+            asset_to_sy(py_index, pt_supply)?
+        } else {
+            0
+        };
+        let total_required = total_sy_reserve
+            .checked_add(yt_reserved_sy)
+            .ok_or(ContractError::MathOverflow)?
+            .checked_add(required_pt_sy)
+            .ok_or(ContractError::MathOverflow)?;
+        if vault_balance < total_required {
+            return Err(ContractError::InsufficientBalance);
+        }
+        Ok((vault_balance, total_sy_reserve, yt_reserved_sy))
+    }
+
+    #[inline(never)]
+    fn load_pre_maturity_ctx(env: &Env) -> Result<PreMaturityCtx, ContractError> {
+        let maturity: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Maturity)
+            .ok_or(ContractError::NotInitialized)?;
+        if env.ledger().timestamp() >= maturity {
+            return Err(ContractError::MarketAlreadyMatured);
+        }
+        let sy_addr: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::SyContract)
+            .ok_or(ContractError::NotInitialized)?;
+        let pt_addr: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PtContract)
+            .ok_or(ContractError::NotInitialized)?;
+        let yt_addr: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::YtContract)
+            .ok_or(ContractError::NotInitialized)?;
+        let pt_res: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalPtReserve)
+            .unwrap_or(0);
+        let sy_res: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalSyReserve)
+            .unwrap_or(0);
+        let scalar_root: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ScalarRoot)
+            .unwrap_or(0);
+        let anchor: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::InitialAnchor)
+            .unwrap_or(WAD);
+        let annual_fee: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::AnnualFeeRate)
+            .unwrap_or(0);
+
+        let tau_wad = calculate_tau_wad(env.ledger().timestamp(), maturity);
+        let fee_rate = calculate_fee_rate(tau_wad, annual_fee);
+
+        Ok(PreMaturityCtx {
+            maturity,
+            sy_addr,
+            pt_addr,
+            yt_addr,
+            pt_res,
+            sy_res,
+            scalar_root,
+            anchor,
+            tau_wad,
+            fee_rate,
+        })
+    }
+
+    #[inline(never)]
+    fn compute_protocol_fee(env: &Env, fee_amount: i128) -> Result<(i128, Address), ContractError> {
+        let proto_bps: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProtocolFeeBps)
+            .unwrap_or(0);
+        let proto_fee = fee_amount
+            .checked_mul(proto_bps)
+            .ok_or(ContractError::MathOverflow)?
+            / 10_000;
+        let fee_recipient: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeRecipient)
+            .ok_or(ContractError::NotInitialized)?;
+        Ok((proto_fee, fee_recipient))
+    }
+
+    #[inline(never)]
+    fn publish_swap_event(
+        env: &Env,
+        maturity: u64,
+        caller: Address,
+        receiver: Address,
+        direction: u32,
+        amount_in: i128,
+        amount_out: i128,
+        fee: i128,
+    ) {
+        bump_instance_ttl(env, maturity);
+        SwapEvent {
+            caller,
+            receiver,
+            direction,
+            amount_in,
+            amount_out,
+            fee,
+        }
+        .publish(env);
+    }
+
+    #[inline(never)]
+    fn consume_allowance(
+        env: &Env,
+        from: &Address,
+        spender: &Address,
+        amount: i128,
+    ) -> Result<(), ContractError> {
+        let allow_key = AllowanceKey {
+            from: from.clone(),
+            spender: spender.clone(),
+        };
+        let storage_key = DataKey::Allowance(allow_key);
+        let allowance: Option<AllowanceValue> = env.storage().temporary().get(&storage_key);
+        let mut allow_val = match allowance {
+            Some(v) => {
+                if v.expiration_ledger < env.ledger().sequence() {
+                    return Err(ContractError::InsufficientAllowance);
+                }
+                v
+            }
+            None => return Err(ContractError::InsufficientAllowance),
+        };
+        if allow_val.amount < amount {
+            return Err(ContractError::InsufficientAllowance);
+        }
+        if allow_val.amount != i128::MAX {
+            allow_val.amount -= amount;
+            env.storage().temporary().set(&storage_key, &allow_val);
+            bump_allowance_ttl(env, &storage_key, allow_val.expiration_ledger);
+        }
+        Ok(())
+    }
+
+    #[inline(never)]
+    fn redeem_pt_internal(
+        env: &Env,
+        caller: Address,
+        receiver: Address,
+        pt_amount: i128,
+        is_btoken: bool,
+    ) -> Result<i128, ContractError> {
+        caller.require_auth();
+        common::governance::check_not_paused(env)?;
+        if pt_amount <= 0 {
+            return Err(ContractError::ZeroAmount);
+        }
+
+        with_non_reentrant(env, || {
+            let maturity: u64 = env
+                .storage()
+                .instance()
+                .get(&DataKey::Maturity)
+                .ok_or(ContractError::NotInitialized)?;
+            if env.ledger().timestamp() < maturity {
+                return Err(ContractError::MarketNotYetMatured);
+            }
+
+            let (_pinned, maybe_raw) = Self::internal_settle_if_needed(env)?;
+
+            let sy_addr: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::SyContract)
+                .ok_or(ContractError::NotInitialized)?;
+            let pt_addr: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::PtContract)
+                .ok_or(ContractError::NotInitialized)?;
+            let yt_addr: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::YtContract)
+                .ok_or(ContractError::NotInitialized)?;
+
+            let sy_client = StandardizedYieldClient::new(env, &sy_addr);
+            let pt_client = PrivilegedTokenClient::new(env, &pt_addr);
+            let yt_client = YieldTokenClient::new(env, &yt_addr);
+
+            if pt_client.balance(&caller) < pt_amount {
+                return Err(ContractError::InsufficientBalance);
+            }
+
+            let (vault_balance, total_sy_reserve, yt_reserved_sy) =
+                Self::sync_py_reserves_opt(env, &sy_client, &yt_client, maybe_raw)?;
+
+            let protected_sy = total_sy_reserve
+                .checked_add(yt_reserved_sy)
+                .ok_or(ContractError::MathOverflow)?;
+            let available_for_pt = pos_sub(vault_balance, protected_sy);
+
+            let shares =
+                calculate_pro_rata_share(pt_amount, available_for_pt, pt_client.total_supply())?;
+
+            pt_client.burn(&caller, &pt_amount);
+            let payout = if is_btoken {
+                if shares > 0 {
+                    sy_client.redeem_to_btoken(
+                        &env.current_contract_address(),
+                        &receiver,
+                        &shares,
+                    )
+                } else {
+                    0
+                }
+            } else {
+                if shares > 0 {
+                    sy_client.transfer(&env.current_contract_address(), &receiver, &shares);
+                }
+                shares
+            };
+
+            env.storage().instance().set(
+                &DataKey::PtPrincipalReserve,
+                &pos_sub(available_for_pt, shares),
+            );
+            env.storage()
+                .instance()
+                .set(&DataKey::YtYieldReserve, &yt_reserved_sy);
+
+            bump_instance_ttl(env, maturity);
+            RedeemPtEvent {
+                caller,
+                receiver,
+                pt_burned: pt_amount,
+                payout,
+                is_btoken,
+            }
+            .publish(env);
+            Ok(payout)
+        })
+    }
+    fn init_internal(
+        env: &Env,
+        auth_caller: &Address,
+        admin: &Address,
+        sy: &Address,
+        pt: &Address,
+        yt: &Address,
         maturity: u64,
         scalar_root: i128,
         initial_anchor: i128,
@@ -54,7 +347,7 @@ impl YieldPool {
         if env.storage().instance().has(&DataKey::Initialized) {
             return Err(ContractError::AlreadyInitialized);
         }
-        admin.require_auth();
+        auth_caller.require_auth();
         if maturity <= env.ledger().timestamp() {
             return Err(ContractError::InvalidMaturity);
         }
@@ -62,10 +355,15 @@ impl YieldPool {
             return Err(ContractError::ZeroAmount);
         }
 
-        env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::SyContract, &sy);
-        env.storage().instance().set(&DataKey::PtContract, &pt);
-        env.storage().instance().set(&DataKey::YtContract, &yt);
+        let (decimals, sym_buf, sym_len) = common::metadata::resolve_sy_metadata(env, sy);
+        let sym_slice = &sym_buf[..sym_len];
+        let lp_name = common::metadata::join3(env, b"NivoraFi LP ", sym_slice, b"");
+        let lp_symbol = common::metadata::join3(env, b"LP-", sym_slice, b"");
+
+        env.storage().instance().set(&DataKey::Admin, admin);
+        env.storage().instance().set(&DataKey::SyContract, sy);
+        env.storage().instance().set(&DataKey::PtContract, pt);
+        env.storage().instance().set(&DataKey::YtContract, yt);
         env.storage().instance().set(&DataKey::Maturity, &maturity);
         env.storage()
             .instance()
@@ -81,7 +379,7 @@ impl YieldPool {
         env.storage()
             .instance()
             .set(&DataKey::ProtocolFeeBps, &2000i128);
-        env.storage().instance().set(&DataKey::FeeRecipient, &admin);
+        env.storage().instance().set(&DataKey::FeeRecipient, admin);
         env.storage()
             .instance()
             .set(&DataKey::TotalPtReserve, &0i128);
@@ -90,19 +388,132 @@ impl YieldPool {
             .set(&DataKey::TotalSyReserve, &0i128);
         env.storage()
             .instance()
+            .set(&DataKey::PtPrincipalReserve, &0i128);
+        env.storage()
+            .instance()
+            .set(&DataKey::YtYieldReserve, &0i128);
+        env.storage()
+            .instance()
             .set(&DataKey::TotalLpSupply, &0i128);
         env.storage().instance().set(&DataKey::IsSettled, &false);
-        env.storage().instance().set(&DataKey::Decimals, &7u32);
-        env.storage()
-            .instance()
-            .set(&DataKey::Name, &String::from_str(&env, "Pendle LP Token"));
-        env.storage()
-            .instance()
-            .set(&DataKey::Symbol, &String::from_str(&env, "LP-PT-SY"));
+        env.storage().instance().set(&DataKey::Decimals, &decimals);
+        env.storage().instance().set(&DataKey::Name, &lp_name);
+        env.storage().instance().set(&DataKey::Symbol, &lp_symbol);
         env.storage().instance().set(&DataKey::Initialized, &true);
 
-        bump_instance_ttl(&env, maturity);
+        bump_instance_ttl(env, maturity);
         Ok(())
+    }
+
+    fn sync_py_reserves_opt(
+        env: &Env,
+        sy_client: &StandardizedYieldClient,
+        yt_client: &YieldTokenClient,
+        rate_opt: Option<i128>,
+    ) -> Result<(i128, i128, i128), ContractError> {
+        let total_unclaimed_underlying = yt_client.get_total_unclaimed_yield();
+        let yt_reserved_sy = if total_unclaimed_underlying > 0 {
+            let rate = match rate_opt {
+                Some(r) => r,
+                None => {
+                    let r = sy_client.exchange_rate();
+                    if r <= 0 {
+                        return Err(ContractError::BlendPoolError);
+                    }
+                    r
+                }
+            };
+            asset_to_sy_ceil(rate, total_unclaimed_underlying)?
+        } else {
+            0
+        };
+
+        let vault_balance = sy_client.balance(&env.current_contract_address());
+        let total_sy_reserve: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalSyReserve)
+            .unwrap_or(0);
+        let actual_py_sy = pos_sub(vault_balance, total_sy_reserve);
+        let pt_principal_sy = pos_sub(actual_py_sy, yt_reserved_sy);
+
+        env.storage()
+            .instance()
+            .set(&DataKey::YtYieldReserve, &yt_reserved_sy);
+        env.storage()
+            .instance()
+            .set(&DataKey::PtPrincipalReserve, &pt_principal_sy);
+
+        Ok((vault_balance, total_sy_reserve, yt_reserved_sy))
+    }
+
+    fn sync_py_reserves(
+        env: &Env,
+        sy_client: &StandardizedYieldClient,
+        yt_client: &YieldTokenClient,
+        rate: i128,
+    ) -> Result<(i128, i128, i128), ContractError> {
+        Self::sync_py_reserves_opt(env, sy_client, yt_client, Some(rate))
+    }
+
+    fn check_amm_bounds(py_index: i128, pt_res: i128, sy_res: i128) -> Result<(), ContractError> {
+        let asset_res = sy_to_asset(py_index, sy_res)?;
+        check_market_proportion(pt_res, asset_res)?;
+        if pt_res < asset_res {
+            return Err(ContractError::NegativeYieldNotSupported);
+        }
+        Ok(())
+    }
+}
+
+#[contractimpl]
+#[allow(clippy::too_many_arguments)]
+impl YieldPool {
+    pub fn initialize(
+        env: Env,
+        admin: Address,
+        sy: Address,
+        pt: Address,
+        yt: Address,
+        maturity: u64,
+        scalar_root: i128,
+        initial_anchor: i128,
+    ) -> Result<(), ContractError> {
+        Self::init_internal(
+            &env,
+            &admin,
+            &admin,
+            &sy,
+            &pt,
+            &yt,
+            maturity,
+            scalar_root,
+            initial_anchor,
+        )
+    }
+
+    pub fn initialize_from_factory(
+        env: Env,
+        deployer: Address,
+        admin: Address,
+        sy: Address,
+        pt: Address,
+        yt: Address,
+        maturity: u64,
+        scalar_root: i128,
+        initial_anchor: i128,
+    ) -> Result<(), ContractError> {
+        Self::init_internal(
+            &env,
+            &deployer,
+            &admin,
+            &sy,
+            &pt,
+            &yt,
+            maturity,
+            scalar_root,
+            initial_anchor,
+        )
     }
 
     // =========================================================================
@@ -114,9 +525,13 @@ impl YieldPool {
         caller: Address,
         receiver: Address,
         amount: i128,
+        deadline: u64,
     ) -> Result<(i128, i128), ContractError> {
         caller.require_auth();
         common::governance::check_not_paused(&env)?;
+        if env.ledger().timestamp() > deadline {
+            return Err(ContractError::DeadlineExpired);
+        }
         if amount <= 0 {
             return Err(ContractError::ZeroAmount);
         }
@@ -149,24 +564,61 @@ impl YieldPool {
 
             let sy_client = StandardizedYieldClient::new(&env, &sy_addr);
             let pt_client = PrivilegedTokenClient::new(&env, &pt_addr);
-            let yt_client = PrivilegedTokenClient::new(&env, &yt_addr);
+            let yt_client = YieldTokenClient::new(&env, &yt_addr);
+
+            let py_index = yt_client.get_py_index();
+            let py_out = sy_to_asset(py_index, amount)?;
+            if py_out <= 0 {
+                return Err(ContractError::ZeroAmount);
+            }
+
+            let rate = sy_client.exchange_rate();
+            if rate <= 0 {
+                return Err(ContractError::BlendPoolError);
+            }
+            let total_sy_reserve: i128 = env
+                .storage()
+                .instance()
+                .get(&DataKey::TotalSyReserve)
+                .unwrap_or(0);
+            let (vault_balance_before, _, yt_reserved_sy) = Self::require_pt_solvent(
+                &env,
+                &sy_client,
+                &yt_client,
+                &pt_client,
+                rate,
+                total_sy_reserve,
+                py_index,
+            )?;
 
             // Pull SY from caller
             sy_client.transfer(&caller, &env.current_contract_address(), &amount);
 
-            // Mint 1 PT and 1 YT to receiver per 1 SY
-            pt_client.mint(&receiver, &amount);
-            yt_client.mint(&receiver, &amount);
+            // Mint py_out PT and py_out YT to receiver
+            pt_client.mint(&receiver, &py_out);
+            yt_client.mint(&receiver, &py_out);
+
+            let new_vault_balance = vault_balance_before
+                .checked_add(amount)
+                .ok_or(ContractError::MathOverflow)?;
+            let actual_py_sy = pos_sub(new_vault_balance, total_sy_reserve);
+            let pt_principal_sy = pos_sub(actual_py_sy, yt_reserved_sy);
+            env.storage()
+                .instance()
+                .set(&DataKey::YtYieldReserve, &yt_reserved_sy);
+            env.storage()
+                .instance()
+                .set(&DataKey::PtPrincipalReserve, &pt_principal_sy);
 
             bump_instance_ttl(&env, maturity);
             MintPyEvent {
                 caller,
                 receiver,
                 sy_in: amount,
-                py_out: amount,
+                py_out,
             }
             .publish(&env);
-            Ok((amount, amount))
+            Ok((py_out, py_out))
         })
     }
 
@@ -210,39 +662,69 @@ impl YieldPool {
 
             let sy_client = StandardizedYieldClient::new(&env, &sy_addr);
             let pt_client = PrivilegedTokenClient::new(&env, &pt_addr);
-            let yt_client = PrivilegedTokenClient::new(&env, &yt_addr);
+            let yt_client = YieldTokenClient::new(&env, &yt_addr);
 
-            // Burn 1 PT and 1 YT from caller
+            let pt_supply = pt_client.total_supply();
+            if pt_supply < amount
+                || pt_client.balance(&caller) < amount
+                || yt_client.balance(&caller) < amount
+            {
+                return Err(ContractError::InsufficientBalance);
+            }
+
+            let rate = sy_client.exchange_rate();
+            if rate <= 0 {
+                return Err(ContractError::BlendPoolError);
+            }
+            let py_index = yt_client.get_py_index();
+            let (vault_balance, total_sy_reserve, yt_reserved_sy) =
+                Self::sync_py_reserves(&env, &sy_client, &yt_client, rate)?;
+            let protected_sy = total_sy_reserve
+                .checked_add(yt_reserved_sy)
+                .ok_or(ContractError::MathOverflow)?;
+            let available_for_pt = pos_sub(vault_balance, protected_sy);
+
+            let full_sy_for_pt = asset_to_sy(py_index, amount)?;
+            let pro_rata_sy = calculate_pro_rata_share(amount, available_for_pt, pt_supply)?;
+            let sy_payout = full_sy_for_pt.min(pro_rata_sy);
+            if sy_payout <= 0 {
+                return Err(ContractError::InsufficientBalance);
+            }
+
+            // Burn PT and YT from caller
             pt_client.burn(&caller, &amount);
             yt_client.burn(&caller, &amount);
 
-            // Transfer 1 SY to receiver
-            sy_client.transfer(&env.current_contract_address(), &receiver, &amount);
+            // Transfer PT principal SY payout to receiver (accrued YT yield remains in YtYieldReserve)
+            sy_client.transfer(&env.current_contract_address(), &receiver, &sy_payout);
+
+            Self::sync_py_reserves(&env, &sy_client, &yt_client, rate)?;
 
             bump_instance_ttl(&env, maturity);
             RedeemPyEvent {
                 caller,
                 receiver,
                 py_burned: amount,
-                sy_out: amount,
+                sy_out: sy_payout,
             }
             .publish(&env);
-            Ok(amount)
+            Ok(sy_payout)
         })
     }
 
-    fn internal_settle_maturity(env: &Env) -> Result<i128, ContractError> {
+    fn internal_settle_if_needed(env: &Env) -> Result<(i128, Option<i128>), ContractError> {
         let is_settled: bool = env
             .storage()
             .instance()
             .get(&DataKey::IsSettled)
             .unwrap_or(false);
         if is_settled {
-            return env
+            let idx = env
                 .storage()
                 .instance()
                 .get(&DataKey::MaturityIndex)
-                .ok_or(ContractError::NotInitialized);
+                .ok_or(ContractError::NotInitialized)?;
+            return Ok((idx, None));
         }
 
         let maturity: u64 = env
@@ -259,25 +741,56 @@ impl YieldPool {
             .instance()
             .get(&DataKey::SyContract)
             .ok_or(ContractError::NotInitialized)?;
+        let yt_addr: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::YtContract)
+            .ok_or(ContractError::NotInitialized)?;
+
         let sy_client = StandardizedYieldClient::new(env, &sy_addr);
-        let current_rate = sy_client.exchange_rate();
+        let yt_client = YieldTokenClient::new(env, &yt_addr);
+
+        let raw_rate = sy_client.exchange_rate();
+        if raw_rate <= 0 {
+            return Err(ContractError::BlendPoolError);
+        }
+
+        // Bidirectional sync: yt_token::settle_maturity clamps raw_rate against LastKnownIndex
+        // or returns already-pinned MaturityIndex if yt_token settled earlier.
+        let pinned_rate = yt_client.settle_maturity(&raw_rate);
 
         env.storage()
             .instance()
-            .set(&DataKey::MaturityIndex, &current_rate);
+            .set(&DataKey::MaturityIndex, &pinned_rate);
         env.storage().instance().set(&DataKey::IsSettled, &true);
         bump_instance_ttl(env, maturity);
         MaturitySettledEvent {
             maturity,
-            settled_index: current_rate,
+            settled_index: pinned_rate,
         }
         .publish(env);
 
-        Ok(current_rate)
+        Ok((pinned_rate, Some(raw_rate)))
     }
 
     pub fn settle_maturity(env: Env) -> Result<i128, ContractError> {
-        Self::internal_settle_maturity(&env)
+        let (pinned_rate, maybe_raw) = Self::internal_settle_if_needed(&env)?;
+        if let Some(raw_rate) = maybe_raw {
+            let sy_addr: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::SyContract)
+                .ok_or(ContractError::NotInitialized)?;
+            let yt_addr: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::YtContract)
+                .ok_or(ContractError::NotInitialized)?;
+            let sy_client = StandardizedYieldClient::new(&env, &sy_addr);
+            let yt_client = YieldTokenClient::new(&env, &yt_addr);
+            Self::sync_py_reserves(&env, &sy_client, &yt_client, raw_rate)?;
+        }
+        Ok(pinned_rate)
     }
 
     pub fn redeem_pt_post_maturity(
@@ -286,64 +799,7 @@ impl YieldPool {
         receiver: Address,
         pt_amount: i128,
     ) -> Result<i128, ContractError> {
-        caller.require_auth();
-        common::governance::check_not_paused(&env)?;
-        if pt_amount <= 0 {
-            return Err(ContractError::ZeroAmount);
-        }
-
-        with_non_reentrant(&env, || {
-            let maturity: u64 = env
-                .storage()
-                .instance()
-                .get(&DataKey::Maturity)
-                .ok_or(ContractError::NotInitialized)?;
-            if env.ledger().timestamp() < maturity {
-                return Err(ContractError::MarketNotYetMatured);
-            }
-
-            Self::internal_settle_maturity(&env)?;
-
-            let sy_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::SyContract)
-                .ok_or(ContractError::NotInitialized)?;
-            let pt_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::PtContract)
-                .ok_or(ContractError::NotInitialized)?;
-
-            let sy_client = StandardizedYieldClient::new(&env, &sy_addr);
-            let pt_client = PrivilegedTokenClient::new(&env, &pt_addr);
-
-            // Haircut calculation if vault SY balance < total PT supply
-            let vault_balance = sy_client.balance(&env.current_contract_address());
-            let pt_caller_balance = pt_client.balance(&caller);
-            if pt_caller_balance < pt_amount {
-                return Err(ContractError::InsufficientBalance);
-            }
-
-            let haircut = calculate_haircut(vault_balance, pt_client.total_supply())?;
-            let payout = wad_mul(pt_amount, haircut)?.min(vault_balance);
-
-            pt_client.burn(&caller, &pt_amount);
-            if payout > 0 {
-                sy_client.transfer(&env.current_contract_address(), &receiver, &payout);
-            }
-
-            bump_instance_ttl(&env, maturity);
-            RedeemPtEvent {
-                caller,
-                receiver,
-                pt_burned: pt_amount,
-                payout,
-                is_btoken: false,
-            }
-            .publish(&env);
-            Ok(payout)
-        })
+        Self::redeem_pt_internal(&env, caller, receiver, pt_amount, false)
     }
 
     pub fn redeem_pt_to_btoken(
@@ -352,68 +808,7 @@ impl YieldPool {
         receiver: Address,
         pt_amount: i128,
     ) -> Result<i128, ContractError> {
-        caller.require_auth();
-        common::governance::check_not_paused(&env)?;
-        if pt_amount <= 0 {
-            return Err(ContractError::ZeroAmount);
-        }
-
-        with_non_reentrant(&env, || {
-            let maturity: u64 = env
-                .storage()
-                .instance()
-                .get(&DataKey::Maturity)
-                .ok_or(ContractError::NotInitialized)?;
-            if env.ledger().timestamp() < maturity {
-                return Err(ContractError::MarketNotYetMatured);
-            }
-
-            Self::internal_settle_maturity(&env)?;
-            let sy_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::SyContract)
-                .ok_or(ContractError::NotInitialized)?;
-            let pt_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::PtContract)
-                .ok_or(ContractError::NotInitialized)?;
-
-            let sy_client = StandardizedYieldClient::new(&env, &sy_addr);
-            let pt_client = PrivilegedTokenClient::new(&env, &pt_addr);
-
-            let pt_caller_balance = pt_client.balance(&caller);
-            if pt_caller_balance < pt_amount {
-                return Err(ContractError::InsufficientBalance);
-            }
-
-            let vault_balance = sy_client.balance(&env.current_contract_address());
-            let haircut = calculate_haircut(vault_balance, pt_client.total_supply())?;
-            let redeem_shares = wad_mul(pt_amount, haircut)?.min(vault_balance);
-
-            pt_client.burn(&caller, &pt_amount);
-            let btokens = if redeem_shares > 0 {
-                sy_client.redeem_to_btoken(
-                    &env.current_contract_address(),
-                    &receiver,
-                    &redeem_shares,
-                )
-            } else {
-                0
-            };
-
-            bump_instance_ttl(&env, maturity);
-            RedeemPtEvent {
-                caller,
-                receiver,
-                pt_burned: pt_amount,
-                payout: btokens,
-                is_btoken: true,
-            }
-            .publish(&env);
-            Ok(btokens)
-        })
+        Self::redeem_pt_internal(&env, caller, receiver, pt_amount, true)
     }
 
     pub fn claim_yield(env: Env, user: Address, receiver: Address) -> Result<i128, ContractError> {
@@ -421,6 +816,15 @@ impl YieldPool {
         common::governance::check_not_paused(&env)?;
 
         with_non_reentrant(&env, || {
+            let maturity: u64 = env
+                .storage()
+                .instance()
+                .get(&DataKey::Maturity)
+                .ok_or(ContractError::NotInitialized)?;
+            if env.ledger().timestamp() >= maturity {
+                Self::internal_settle_if_needed(&env)?;
+            }
+
             let yt_addr: Address = env
                 .storage()
                 .instance()
@@ -432,42 +836,57 @@ impl YieldPool {
                 .get(&DataKey::SyContract)
                 .ok_or(ContractError::NotInitialized)?;
 
-            let yt_client = PrivilegedTokenClient::new(&env, &yt_addr);
+            let yt_client = YieldTokenClient::new(&env, &yt_addr);
             let sy_client = StandardizedYieldClient::new(&env, &sy_addr);
 
-            let maturity: u64 = env
+            let yield_amount = yt_client.claim_user_yield(&user);
+            let raw_rate = sy_client.exchange_rate();
+            if raw_rate <= 0 {
+                return Err(ContractError::BlendPoolError);
+            }
+            if yield_amount <= 0 {
+                Self::sync_py_reserves(&env, &sy_client, &yt_client, raw_rate)?;
+                bump_instance_ttl(&env, maturity);
+                return Ok(0);
+            }
+
+            let pool_balance = sy_client.balance(&env.current_contract_address());
+            let total_sy_reserve: i128 = env
                 .storage()
                 .instance()
-                .get(&DataKey::Maturity)
+                .get(&DataKey::TotalSyReserve)
                 .unwrap_or(0);
-            let yield_amount = yt_client.claim_user_yield(&user);
-            if yield_amount > 0 {
-                let current_rate = sy_client.exchange_rate();
-                if current_rate <= 0 {
-                    return Err(ContractError::BlendPoolError);
-                }
-                // Convert underlying yield to SY shares at current exchange rate
-                let sy_payout = match yield_amount.checked_mul(common::fixed_point::SCALAR_9) {
-                    Some(prod) => prod / current_rate,
-                    None => return Err(ContractError::MathOverflow),
-                };
-                let pool_balance = sy_client.balance(&env.current_contract_address());
-                if pool_balance < sy_payout {
-                    return Err(ContractError::InsufficientBalance);
-                }
-                sy_client.transfer(&env.current_contract_address(), &receiver, &sy_payout);
-                bump_instance_ttl(&env, maturity);
-                YieldClaimedEvent {
-                    user,
-                    receiver,
-                    yield_out: sy_payout,
-                }
-                .publish(&env);
-                Ok(sy_payout)
-            } else {
-                bump_instance_ttl(&env, maturity);
-                Ok(0)
+            let available_py_sy = pos_sub(pool_balance, total_sy_reserve);
+            if available_py_sy <= 0 {
+                return Err(ContractError::InsufficientBalance);
             }
+
+            let remaining_unclaimed = yt_client.get_total_unclaimed_yield();
+            let total_claim_pool = remaining_unclaimed
+                .checked_add(yield_amount)
+                .ok_or(ContractError::MathOverflow)?;
+            let total_sy_needed = asset_to_sy_ceil(raw_rate, total_claim_pool)?;
+
+            let sy_payout = if total_sy_needed > available_py_sy {
+                let share = wad_div(yield_amount, total_claim_pool)?;
+                wad_mul(available_py_sy, share)?.min(available_py_sy)
+            } else {
+                asset_to_sy(raw_rate, yield_amount)?.min(available_py_sy)
+            };
+
+            if sy_payout <= 0 {
+                return Err(ContractError::InsufficientBalance);
+            }
+            sy_client.transfer(&env.current_contract_address(), &receiver, &sy_payout);
+            Self::sync_py_reserves(&env, &sy_client, &yt_client, raw_rate)?;
+            bump_instance_ttl(&env, maturity);
+            YieldClaimedEvent {
+                user,
+                receiver,
+                yield_out: sy_payout,
+            }
+            .publish(&env);
+            Ok(sy_payout)
         })
     }
 
@@ -572,102 +991,49 @@ impl YieldPool {
         receiver: Address,
         pt_in: i128,
         min_sy_out: i128,
+        deadline: u64,
     ) -> Result<(i128, i128), ContractError> {
         caller.require_auth();
         common::governance::check_not_paused(&env)?;
+        if env.ledger().timestamp() > deadline {
+            return Err(ContractError::DeadlineExpired);
+        }
         if pt_in <= 0 || min_sy_out < 0 {
             return Err(ContractError::ZeroAmount);
         }
 
         with_non_reentrant(&env, || {
-            let maturity: u64 = env
-                .storage()
-                .instance()
-                .get(&DataKey::Maturity)
-                .ok_or(ContractError::NotInitialized)?;
-            if env.ledger().timestamp() >= maturity {
-                return Err(ContractError::MarketAlreadyMatured);
-            }
+            let ctx = Self::load_pre_maturity_ctx(&env)?;
+            let pt_client = PrivilegedTokenClient::new(&env, &ctx.pt_addr);
+            let sy_client = StandardizedYieldClient::new(&env, &ctx.sy_addr);
+            let yt_client = YieldTokenClient::new(&env, &ctx.yt_addr);
 
-            let pt_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::PtContract)
-                .ok_or(ContractError::NotInitialized)?;
-            let sy_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::SyContract)
-                .ok_or(ContractError::NotInitialized)?;
-
-            let pt_client = PrivilegedTokenClient::new(&env, &pt_addr);
-            let sy_client = StandardizedYieldClient::new(&env, &sy_addr);
-
-            let pt_res: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalPtReserve)
-                .unwrap_or(0);
-            let sy_res: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalSyReserve)
-                .unwrap_or(0);
-            let scalar_root: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::ScalarRoot)
-                .unwrap_or(0);
-            let anchor: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::InitialAnchor)
-                .unwrap_or(WAD);
-            let annual_fee: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::AnnualFeeRate)
-                .unwrap_or(0);
-
-            let tau_wad = calculate_tau_wad(env.ledger().timestamp(), maturity);
-            let fee_rate = calculate_fee_rate(tau_wad, annual_fee);
-
+            let py_index = yt_client.get_py_index();
+            let asset_res = sy_to_asset(py_index, ctx.sy_res)?;
             let swap_res = swap_exact_pt_for_sy_math(
                 pt_in,
-                pt_res,
-                sy_res,
-                tau_wad,
-                scalar_root,
-                anchor,
-                fee_rate,
+                ctx.pt_res,
+                asset_res,
+                ctx.tau_wad,
+                ctx.scalar_root,
+                ctx.anchor,
+                ctx.fee_rate,
             )?;
 
-            if swap_res.amount_out < min_sy_out {
+            let sy_out = asset_to_sy(py_index, swap_res.amount_out)?;
+            let fee_sy = asset_to_sy(py_index, swap_res.fee)?;
+            if sy_out < min_sy_out {
                 return Err(ContractError::SlippageExceeded);
+            }
+            if sy_out <= 0 {
+                return Err(ContractError::ZeroAmount);
             }
 
             // Deduct protocol fee from AMM SY reserve so TotalSyReserve matches backing
-            let proto_bps: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::ProtocolFeeBps)
-                .unwrap_or(0);
-            let proto_fee = swap_res
-                .fee
-                .checked_mul(proto_bps)
-                .ok_or(ContractError::MathOverflow)?
-                / 10_000;
-            let final_sy_reserve = swap_res
-                .new_sy_reserve
-                .checked_sub(proto_fee)
-                .ok_or(ContractError::InsufficientBalance)?;
-            check_market_proportion(swap_res.new_pt_reserve, final_sy_reserve)?;
-
-            let fee_recipient: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::FeeRecipient)
-                .ok_or(ContractError::NotInitialized)?;
+            let (proto_fee_sy, fee_recipient) = Self::compute_protocol_fee(&env, fee_sy)?;
+            let final_sy_reserve =
+                Self::sub_reserve(Self::sub_reserve(ctx.sy_res, sy_out)?, proto_fee_sy)?;
+            Self::check_amm_bounds(py_index, swap_res.new_pt_reserve, final_sy_reserve)?;
 
             // Pull PT from caller and update reserves before outbound transfers
             pt_client.transfer(&caller, &env.current_contract_address(), &pt_in);
@@ -679,27 +1045,18 @@ impl YieldPool {
                 .instance()
                 .set(&DataKey::TotalSyReserve, &final_sy_reserve);
 
-            if proto_fee > 0 {
-                sy_client.transfer(&env.current_contract_address(), &fee_recipient, &proto_fee);
+            if proto_fee_sy > 0 {
+                sy_client.transfer(
+                    &env.current_contract_address(),
+                    &fee_recipient,
+                    &proto_fee_sy,
+                );
             }
 
-            sy_client.transfer(
-                &env.current_contract_address(),
-                &receiver,
-                &swap_res.amount_out,
-            );
+            sy_client.transfer(&env.current_contract_address(), &receiver, &sy_out);
 
-            bump_instance_ttl(&env, maturity);
-            SwapEvent {
-                caller,
-                receiver,
-                direction: 0,
-                amount_in: pt_in,
-                amount_out: swap_res.amount_out,
-                fee: swap_res.fee,
-            }
-            .publish(&env);
-            Ok((swap_res.amount_out, swap_res.fee))
+            Self::publish_swap_event(&env, ctx.maturity, caller, receiver, 0, pt_in, sy_out, fee_sy);
+            Ok((sy_out, fee_sy))
         })
     }
 
@@ -709,79 +1066,54 @@ impl YieldPool {
         receiver: Address,
         sy_in: i128,
         min_pt_out: i128,
+        deadline: u64,
     ) -> Result<(i128, i128), ContractError> {
         caller.require_auth();
         common::governance::check_not_paused(&env)?;
+        if env.ledger().timestamp() > deadline {
+            return Err(ContractError::DeadlineExpired);
+        }
         if sy_in <= 0 || min_pt_out < 0 {
             return Err(ContractError::ZeroAmount);
         }
 
         with_non_reentrant(&env, || {
-            let maturity: u64 = env
-                .storage()
-                .instance()
-                .get(&DataKey::Maturity)
-                .ok_or(ContractError::NotInitialized)?;
-            if env.ledger().timestamp() >= maturity {
-                return Err(ContractError::MarketAlreadyMatured);
+            let ctx = Self::load_pre_maturity_ctx(&env)?;
+            let pt_client = PrivilegedTokenClient::new(&env, &ctx.pt_addr);
+            let sy_client = StandardizedYieldClient::new(&env, &ctx.sy_addr);
+            let yt_client = YieldTokenClient::new(&env, &ctx.yt_addr);
+
+            let py_index = yt_client.get_py_index();
+            let asset_res = sy_to_asset(py_index, ctx.sy_res)?;
+            let asset_in = sy_to_asset(py_index, sy_in)?;
+            if asset_in <= 0 {
+                return Err(ContractError::ZeroAmount);
             }
 
-            let pt_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::PtContract)
-                .ok_or(ContractError::NotInitialized)?;
-            let sy_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::SyContract)
-                .ok_or(ContractError::NotInitialized)?;
-
-            let pt_client = PrivilegedTokenClient::new(&env, &pt_addr);
-            let sy_client = StandardizedYieldClient::new(&env, &sy_addr);
-
-            let pt_res: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalPtReserve)
-                .unwrap_or(0);
-            let sy_res: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalSyReserve)
-                .unwrap_or(0);
-            let scalar_root: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::ScalarRoot)
-                .unwrap_or(0);
-            let anchor: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::InitialAnchor)
-                .unwrap_or(WAD);
-            let annual_fee: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::AnnualFeeRate)
-                .unwrap_or(0);
-
-            let tau_wad = calculate_tau_wad(env.ledger().timestamp(), maturity);
-            let fee_rate = calculate_fee_rate(tau_wad, annual_fee);
-
             let swap_res = swap_exact_sy_for_pt_math(
-                sy_in,
-                pt_res,
-                sy_res,
-                tau_wad,
-                scalar_root,
-                anchor,
-                fee_rate,
+                asset_in,
+                ctx.pt_res,
+                asset_res,
+                ctx.tau_wad,
+                ctx.scalar_root,
+                ctx.anchor,
+                ctx.fee_rate,
             )?;
 
             if swap_res.amount_out < min_pt_out {
                 return Err(ContractError::SlippageExceeded);
             }
+            if swap_res.amount_out <= 0 {
+                return Err(ContractError::ZeroAmount);
+            }
+
+            let (proto_fee, fee_recipient) = Self::compute_protocol_fee(&env, swap_res.fee)?;
+            let final_pt_reserve = Self::sub_reserve(swap_res.new_pt_reserve, proto_fee)?;
+            let final_sy_reserve = ctx
+                .sy_res
+                .checked_add(sy_in)
+                .ok_or(ContractError::MathOverflow)?;
+            Self::check_amm_bounds(py_index, final_pt_reserve, final_sy_reserve)?;
 
             // Transfer SY from caller to yield_pool
             sy_client.transfer(&caller, &env.current_contract_address(), &sy_in);
@@ -789,10 +1121,14 @@ impl YieldPool {
             // Update reserves
             env.storage()
                 .instance()
-                .set(&DataKey::TotalPtReserve, &swap_res.new_pt_reserve);
+                .set(&DataKey::TotalPtReserve, &final_pt_reserve);
             env.storage()
                 .instance()
-                .set(&DataKey::TotalSyReserve, &swap_res.new_sy_reserve);
+                .set(&DataKey::TotalSyReserve, &final_sy_reserve);
+
+            if proto_fee > 0 {
+                pt_client.transfer(&env.current_contract_address(), &fee_recipient, &proto_fee);
+            }
 
             // Transfer net PT out to receiver
             pt_client.transfer(
@@ -801,16 +1137,16 @@ impl YieldPool {
                 &swap_res.amount_out,
             );
 
-            bump_instance_ttl(&env, maturity);
-            SwapEvent {
+            Self::publish_swap_event(
+                &env,
+                ctx.maturity,
                 caller,
                 receiver,
-                direction: 1,
-                amount_in: sy_in,
-                amount_out: swap_res.amount_out,
-                fee: swap_res.fee,
-            }
-            .publish(&env);
+                1,
+                sy_in,
+                swap_res.amount_out,
+                swap_res.fee,
+            );
             Ok((swap_res.amount_out, swap_res.fee))
         })
     }
@@ -821,74 +1157,32 @@ impl YieldPool {
         receiver: Address,
         sy_in: i128,
         min_yt_out: i128,
+        deadline: u64,
     ) -> Result<(i128, i128), ContractError> {
         caller.require_auth();
         common::governance::check_not_paused(&env)?;
+        if env.ledger().timestamp() > deadline {
+            return Err(ContractError::DeadlineExpired);
+        }
         if sy_in <= 0 || min_yt_out < 0 {
             return Err(ContractError::ZeroAmount);
         }
 
         with_non_reentrant(&env, || {
-            let maturity: u64 = env
-                .storage()
-                .instance()
-                .get(&DataKey::Maturity)
-                .ok_or(ContractError::NotInitialized)?;
-            if env.ledger().timestamp() >= maturity {
-                return Err(ContractError::MarketAlreadyMatured);
+            let ctx = Self::load_pre_maturity_ctx(&env)?;
+            let sy_client = StandardizedYieldClient::new(&env, &ctx.sy_addr);
+            let pt_client = PrivilegedTokenClient::new(&env, &ctx.pt_addr);
+            let yt_client = YieldTokenClient::new(&env, &ctx.yt_addr);
+
+            let py_index = yt_client.get_py_index();
+            let asset_res = sy_to_asset(py_index, ctx.sy_res)?;
+            let asset_in = sy_to_asset(py_index, sy_in)?;
+            if asset_in <= 0 {
+                return Err(ContractError::ZeroAmount);
             }
 
-            let sy_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::SyContract)
-                .ok_or(ContractError::NotInitialized)?;
-            let pt_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::PtContract)
-                .ok_or(ContractError::NotInitialized)?;
-            let yt_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::YtContract)
-                .ok_or(ContractError::NotInitialized)?;
-
-            let sy_client = StandardizedYieldClient::new(&env, &sy_addr);
-            let pt_client = PrivilegedTokenClient::new(&env, &pt_addr);
-            let yt_client = PrivilegedTokenClient::new(&env, &yt_addr);
-
-            let pt_res: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalPtReserve)
-                .unwrap_or(0);
-            let sy_res: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalSyReserve)
-                .unwrap_or(0);
-            let scalar_root: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::ScalarRoot)
-                .unwrap_or(0);
-            let anchor: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::InitialAnchor)
-                .unwrap_or(WAD);
-            let annual_fee: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::AnnualFeeRate)
-                .unwrap_or(0);
-
-            let tau_wad = calculate_tau_wad(env.ledger().timestamp(), maturity);
-            let fee_rate = calculate_fee_rate(tau_wad, annual_fee);
-
-            // Initial exchange rate
-            let e0 = get_exchange_rate(pt_res, sy_res, tau_wad, scalar_root, anchor)?;
+            // Initial exchange rate in underlying asset terms
+            let e0 = get_exchange_rate(ctx.pt_res, asset_res, ctx.tau_wad, ctx.scalar_root, ctx.anchor)?;
             if e0 <= WAD {
                 return Err(ContractError::NegativeYieldNotSupported);
             }
@@ -896,25 +1190,68 @@ impl YieldPool {
                 .checked_sub(wad_div(WAD, e0)?)
                 .ok_or(ContractError::MathOverflow)?;
             let unit_cost0 = unit_yield0
-                .checked_add(wad_mul(unit_yield0, fee_rate)?)
+                .checked_add(wad_mul(unit_yield0, ctx.fee_rate)?)
                 .ok_or(ContractError::MathOverflow)?;
             if unit_cost0 <= 0 {
                 return Err(ContractError::NegativeYieldNotSupported);
             }
-            let mut n = wad_div(sy_in, unit_cost0)?;
+            let n0 = wad_div(asset_in, unit_cost0)?;
+            let max_n_sy = sy_to_asset(
+                py_index,
+                ctx.sy_res
+                    .checked_add(sy_in)
+                    .ok_or(ContractError::MathOverflow)?,
+            )?;
+            let mut hi = n0.min(max_n_sy);
+            let mut lo = 0i128;
+            let mut best_e = e0;
 
-            // Refinement step
-            let refined_pt = pt_res.checked_add(n).ok_or(ContractError::MathOverflow)?;
-            let e1 = get_exchange_rate(refined_pt, sy_res, tau_wad, scalar_root, anchor)?;
-            let unit_yield1 = WAD
-                .checked_sub(wad_div(WAD, e1)?)
-                .ok_or(ContractError::MathOverflow)?;
-            let unit_cost1 = unit_yield1
-                .checked_add(wad_mul(unit_yield1, fee_rate)?)
-                .ok_or(ContractError::MathOverflow)?;
-            if unit_cost1 > 0 {
-                n = wad_div(sy_in, unit_cost1)?;
+            for _ in 0..48 {
+                if lo >= hi {
+                    break;
+                }
+                let mid = lo + (hi - lo + 1) / 2;
+                let gross_est = wad_div(mid, e0)?;
+                if gross_est >= asset_res {
+                    hi = mid - 1;
+                    continue;
+                }
+                let refined_pt = match ctx.pt_res.checked_add(mid) {
+                    Some(v) => v,
+                    None => {
+                        hi = mid - 1;
+                        continue;
+                    }
+                };
+                let e_mid = match get_exchange_rate(
+                    refined_pt,
+                    asset_res - gross_est,
+                    ctx.tau_wad,
+                    ctx.scalar_root,
+                    ctx.anchor,
+                ) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        hi = mid - 1;
+                        continue;
+                    }
+                };
+                let unit_yield = WAD
+                    .checked_sub(wad_div(WAD, e_mid)?)
+                    .ok_or(ContractError::MathOverflow)?;
+                let unit_cost = unit_yield
+                    .checked_add(wad_mul(unit_yield, ctx.fee_rate)?)
+                    .ok_or(ContractError::MathOverflow)?;
+                let cost = wad_mul(mid, unit_cost)?;
+                if cost <= asset_in {
+                    lo = mid;
+                    best_e = e_mid;
+                } else {
+                    hi = mid - 1;
+                }
             }
+            let n = lo;
+            let e1 = best_e;
 
             if n <= 0 {
                 return Err(ContractError::ZeroAmount);
@@ -923,37 +1260,36 @@ impl YieldPool {
                 return Err(ContractError::SlippageExceeded);
             }
 
-            // Flash swap mechanics: N PT added to reserves, net SY removed from reserves
-            let gross_sy_sold = wad_div(n, e1)?;
+            // Flash swap mechanics: N PT added to reserves, py_backing_sy locked for PT principal
+            let gross_asset_sold = wad_div(n, e1)?;
             let yield_cost = n
-                .checked_sub(gross_sy_sold)
+                .checked_sub(gross_asset_sold)
                 .ok_or(ContractError::NegativeYieldNotSupported)?;
-            let fee = wad_mul(yield_cost, fee_rate)?;
-            let net_sy_sold = gross_sy_sold;
+            let fee_asset = wad_mul(yield_cost, ctx.fee_rate)?;
+            let fee_sy = asset_to_sy(py_index, fee_asset)?;
 
-            let protocol_bps: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::ProtocolFeeBps)
-                .unwrap_or(0);
-            let protocol_fee = fee
-                .checked_mul(protocol_bps)
-                .ok_or(ContractError::MathOverflow)?
-                / 10_000;
-            let fee_recipient: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::FeeRecipient)
-                .ok_or(ContractError::NotInitialized)?;
+            let (protocol_fee_sy, fee_recipient) = Self::compute_protocol_fee(&env, fee_sy)?;
+            let py_backing_sy = asset_to_sy_ceil(py_index, n)?;
 
-            let new_pt_res = pt_res.checked_add(n).ok_or(ContractError::MathOverflow)?;
-            let final_sy_res = sy_res
-                .checked_sub(net_sy_sold)
-                .ok_or(ContractError::InsufficientBalance)?;
-            check_market_proportion(new_pt_res, final_sy_res)?;
-            if new_pt_res < final_sy_res {
-                return Err(ContractError::NegativeYieldNotSupported);
+            let new_pt_res = ctx.pt_res.checked_add(n).ok_or(ContractError::MathOverflow)?;
+            let total_in_sy = ctx.sy_res.checked_add(sy_in).ok_or(ContractError::MathOverflow)?;
+            let after_fee_sy = Self::sub_reserve(total_in_sy, protocol_fee_sy)?;
+            let final_sy_res = Self::sub_reserve(after_fee_sy, py_backing_sy)?;
+            Self::check_amm_bounds(py_index, new_pt_res, final_sy_res)?;
+
+            let rate = sy_client.exchange_rate();
+            if rate <= 0 {
+                return Err(ContractError::BlendPoolError);
             }
+            let (vault_balance_before, _, yt_reserved_sy) = Self::require_pt_solvent(
+                &env,
+                &sy_client,
+                &yt_client,
+                &pt_client,
+                rate,
+                ctx.sy_res,
+                py_index,
+            )?;
 
             // Checks passed -> pull input, update reserves, route fee & mint PT/YT
             sy_client.transfer(&caller, &env.current_contract_address(), &sy_in);
@@ -965,28 +1301,33 @@ impl YieldPool {
                 .instance()
                 .set(&DataKey::TotalSyReserve, &final_sy_res);
 
-            if protocol_fee > 0 {
+            if protocol_fee_sy > 0 {
                 sy_client.transfer(
                     &env.current_contract_address(),
                     &fee_recipient,
-                    &protocol_fee,
+                    &protocol_fee_sy,
                 );
             }
 
             pt_client.mint(&env.current_contract_address(), &n);
             yt_client.mint(&receiver, &n);
 
-            bump_instance_ttl(&env, maturity);
-            SwapEvent {
-                caller,
-                receiver,
-                direction: 2,
-                amount_in: sy_in,
-                amount_out: n,
-                fee,
-            }
-            .publish(&env);
-            Ok((n, sy_in))
+            let new_vault_balance = vault_balance_before
+                .checked_add(sy_in)
+                .ok_or(ContractError::MathOverflow)?
+                .checked_sub(protocol_fee_sy)
+                .ok_or(ContractError::MathOverflow)?;
+            let actual_py_sy = pos_sub(new_vault_balance, final_sy_res);
+            let pt_principal_sy = pos_sub(actual_py_sy, yt_reserved_sy);
+            env.storage()
+                .instance()
+                .set(&DataKey::YtYieldReserve, &yt_reserved_sy);
+            env.storage()
+                .instance()
+                .set(&DataKey::PtPrincipalReserve, &pt_principal_sy);
+
+            Self::publish_swap_event(&env, ctx.maturity, caller, receiver, 2, sy_in, n, fee_sy);
+            Ok((n, fee_sy))
         })
     }
 
@@ -996,118 +1337,101 @@ impl YieldPool {
         receiver: Address,
         yt_in: i128,
         min_sy_out: i128,
+        deadline: u64,
     ) -> Result<(i128, i128), ContractError> {
         caller.require_auth();
         common::governance::check_not_paused(&env)?;
+        if env.ledger().timestamp() > deadline {
+            return Err(ContractError::DeadlineExpired);
+        }
         if yt_in <= 0 || min_sy_out < 0 {
             return Err(ContractError::ZeroAmount);
         }
 
         with_non_reentrant(&env, || {
-            let maturity: u64 = env
-                .storage()
-                .instance()
-                .get(&DataKey::Maturity)
-                .ok_or(ContractError::NotInitialized)?;
-            if env.ledger().timestamp() >= maturity {
-                return Err(ContractError::MarketAlreadyMatured);
-            }
+            let ctx = Self::load_pre_maturity_ctx(&env)?;
+            let sy_client = StandardizedYieldClient::new(&env, &ctx.sy_addr);
+            let pt_client = PrivilegedTokenClient::new(&env, &ctx.pt_addr);
+            let yt_client = YieldTokenClient::new(&env, &ctx.yt_addr);
 
-            let sy_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::SyContract)
-                .ok_or(ContractError::NotInitialized)?;
-            let pt_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::PtContract)
-                .ok_or(ContractError::NotInitialized)?;
-            let yt_addr: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::YtContract)
-                .ok_or(ContractError::NotInitialized)?;
-
-            let sy_client = StandardizedYieldClient::new(&env, &sy_addr);
-            let pt_client = PrivilegedTokenClient::new(&env, &pt_addr);
-            let yt_client = PrivilegedTokenClient::new(&env, &yt_addr);
-
-            let pt_res: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalPtReserve)
-                .unwrap_or(0);
-            let sy_res: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::TotalSyReserve)
-                .unwrap_or(0);
-            let scalar_root: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::ScalarRoot)
-                .unwrap_or(0);
-            let anchor: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::InitialAnchor)
-                .unwrap_or(WAD);
-            let annual_fee: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::AnnualFeeRate)
-                .unwrap_or(0);
-
-            let tau_wad = calculate_tau_wad(env.ledger().timestamp(), maturity);
-            let fee_rate = calculate_fee_rate(tau_wad, annual_fee);
-
-            if pt_res < yt_in {
+            if ctx.pt_res < yt_in {
                 return Err(ContractError::InsufficientBalance);
             }
 
-            let new_pt_res = pt_res
+            let py_index = yt_client.get_py_index();
+            let asset_res = sy_to_asset(py_index, ctx.sy_res)?;
+            let new_pt_res = ctx
+                .pt_res
                 .checked_sub(yt_in)
                 .ok_or(ContractError::MathOverflow)?;
-            let e_trade = get_exchange_rate(new_pt_res, sy_res, tau_wad, scalar_root, anchor)?;
-            let gross_sy_buy = wad_div(yt_in, e_trade)?;
-            if yt_in <= gross_sy_buy {
+            let e0 = get_exchange_rate(new_pt_res, asset_res, ctx.tau_wad, ctx.scalar_root, ctx.anchor)?;
+            let gross_est0 = wad_div(yt_in, e0)?;
+            let est_asset1 = asset_res
+                .checked_add(gross_est0)
+                .ok_or(ContractError::MathOverflow)?;
+            let e1 = get_exchange_rate(new_pt_res, est_asset1, ctx.tau_wad, ctx.scalar_root, ctx.anchor)?;
+            let gross_est1 = wad_div(yt_in, e1)?;
+            let est_asset2 = asset_res
+                .checked_add(gross_est1)
+                .ok_or(ContractError::MathOverflow)?;
+            let e_trade =
+                get_exchange_rate(new_pt_res, est_asset2, ctx.tau_wad, ctx.scalar_root, ctx.anchor)?;
+            let gross_asset_buy = wad_div_ceil(yt_in, e_trade)?;
+            if yt_in <= gross_asset_buy {
                 return Err(ContractError::NegativeYieldNotSupported);
             }
             let gross_yield = yt_in
-                .checked_sub(gross_sy_buy)
+                .checked_sub(gross_asset_buy)
                 .ok_or(ContractError::MathOverflow)?;
-            let fee = wad_mul(gross_yield, fee_rate)?;
-            let net_sy_out = gross_yield
-                .checked_sub(fee)
+            let fee_asset = wad_mul(gross_yield, ctx.fee_rate)?;
+            let net_asset_out = gross_yield
+                .checked_sub(fee_asset)
                 .ok_or(ContractError::MathOverflow)?;
 
+            let net_sy_out = asset_to_sy(py_index, net_asset_out)?;
             if net_sy_out < min_sy_out {
                 return Err(ContractError::SlippageExceeded);
             }
+            if net_sy_out <= 0 {
+                return Err(ContractError::ZeroAmount);
+            }
+            let fee_sy = asset_to_sy(py_index, fee_asset)?;
 
-            let final_sy_res = sy_res
-                .checked_add(gross_sy_buy)
+            let (protocol_fee_sy, fee_recipient) = Self::compute_protocol_fee(&env, fee_sy)?;
+
+            let rate = sy_client.exchange_rate();
+            if rate <= 0 {
+                return Err(ContractError::BlendPoolError);
+            }
+            let pt_supply = pt_client.total_supply();
+            if pt_supply < yt_in || yt_client.balance(&caller) < yt_in {
+                return Err(ContractError::InsufficientBalance);
+            }
+            let (vault_balance, _total_sy_reserve, yt_reserved_sy) =
+                Self::sync_py_reserves(&env, &sy_client, &yt_client, rate)?;
+            let protected_sy = ctx
+                .sy_res
+                .checked_add(yt_reserved_sy)
                 .ok_or(ContractError::MathOverflow)?;
-            check_market_proportion(new_pt_res, final_sy_res)?;
-            if new_pt_res < final_sy_res {
-                return Err(ContractError::NegativeYieldNotSupported);
+            let available_for_pt = pos_sub(vault_balance, protected_sy);
+            let full_freed_sy = asset_to_sy(py_index, yt_in)?;
+            let pro_rata_freed_sy = calculate_pro_rata_share(yt_in, available_for_pt, pt_supply)?;
+            let freed_pt_sy = full_freed_sy.min(pro_rata_freed_sy);
+
+            let total_sy_out = net_sy_out
+                .checked_add(protocol_fee_sy)
+                .ok_or(ContractError::MathOverflow)?;
+            if freed_pt_sy < total_sy_out {
+                return Err(ContractError::InsufficientBalance);
             }
 
-            let protocol_bps: i128 = env
-                .storage()
-                .instance()
-                .get(&DataKey::ProtocolFeeBps)
-                .unwrap_or(0);
-            let protocol_fee = fee
-                .checked_mul(protocol_bps)
-                .ok_or(ContractError::MathOverflow)?
-                / 10_000;
-            let fee_recipient: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::FeeRecipient)
-                .ok_or(ContractError::NotInitialized)?;
+            let total_sy_with_freed = ctx
+                .sy_res
+                .checked_add(freed_pt_sy)
+                .ok_or(ContractError::MathOverflow)?;
+            let after_out_sy = Self::sub_reserve(total_sy_with_freed, net_sy_out)?;
+            let final_sy_res = Self::sub_reserve(after_out_sy, protocol_fee_sy)?;
+            Self::check_amm_bounds(py_index, new_pt_res, final_sy_res)?;
 
             // Update AMM reserves & burn PT+YT before external transfers
             env.storage()
@@ -1120,26 +1444,21 @@ impl YieldPool {
             yt_client.burn(&caller, &yt_in);
             pt_client.burn(&env.current_contract_address(), &yt_in);
 
-            if protocol_fee > 0 {
+            if protocol_fee_sy > 0 {
                 sy_client.transfer(
                     &env.current_contract_address(),
                     &fee_recipient,
-                    &protocol_fee,
+                    &protocol_fee_sy,
                 );
             }
-            sy_client.transfer(&env.current_contract_address(), &receiver, &net_sy_out);
-
-            bump_instance_ttl(&env, maturity);
-            SwapEvent {
-                caller,
-                receiver,
-                direction: 3,
-                amount_in: yt_in,
-                amount_out: net_sy_out,
-                fee,
+            if net_sy_out > 0 {
+                sy_client.transfer(&env.current_contract_address(), &receiver, &net_sy_out);
             }
-            .publish(&env);
-            Ok((net_sy_out, fee))
+
+            Self::sync_py_reserves(&env, &sy_client, &yt_client, rate)?;
+
+            Self::publish_swap_event(&env, ctx.maturity, caller, receiver, 3, yt_in, net_sy_out, fee_sy);
+            Ok((net_sy_out, fee_sy))
         })
     }
 
@@ -1177,13 +1496,16 @@ impl YieldPool {
                 .instance()
                 .get(&DataKey::SyContract)
                 .ok_or(ContractError::NotInitialized)?;
+            let yt_addr: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::YtContract)
+                .ok_or(ContractError::NotInitialized)?;
 
             let pt_client = PrivilegedTokenClient::new(&env, &pt_addr);
             let sy_client = StandardizedYieldClient::new(&env, &sy_addr);
-
-            // Pull PT and SY from caller
-            pt_client.transfer(&caller, &env.current_contract_address(), &pt_amount);
-            sy_client.transfer(&caller, &env.current_contract_address(), &sy_amount);
+            let yt_client = YieldTokenClient::new(&env, &yt_addr);
+            let py_index = yt_client.get_py_index();
 
             let pt_res: i128 = env
                 .storage()
@@ -1208,10 +1530,7 @@ impl YieldPool {
                 .checked_add(sy_amount)
                 .ok_or(ContractError::MathOverflow)?;
 
-            check_market_proportion(new_pt_res, new_sy_res)?;
-            if new_pt_res < new_sy_res {
-                return Err(ContractError::NegativeYieldNotSupported);
-            }
+            Self::check_amm_bounds(py_index, new_pt_res, new_sy_res)?;
 
             let (lp_shares, new_total_lp) = if total_lp == 0 {
                 let prod = (pt_amount as u128)
@@ -1224,6 +1543,9 @@ impl YieldPool {
                 let shares = initial_shares - MINIMUM_LIQUIDITY;
                 (shares, initial_shares)
             } else {
+                if pt_res <= 0 || sy_res <= 0 {
+                    return Err(ContractError::InsufficientBalance);
+                }
                 let pt_shares = match pt_amount.checked_mul(total_lp) {
                     Some(p) => p / pt_res,
                     None => return Err(ContractError::MathOverflow),
@@ -1242,6 +1564,13 @@ impl YieldPool {
             if lp_shares < min_lp_out {
                 return Err(ContractError::SlippageExceeded);
             }
+            if lp_shares <= 0 {
+                return Err(ContractError::ZeroAmount);
+            }
+
+            // Pull PT and SY from caller only after validating positive LP shares
+            pt_client.transfer(&caller, &env.current_contract_address(), &pt_amount);
+            sy_client.transfer(&caller, &env.current_contract_address(), &sy_amount);
 
             env.storage()
                 .instance()
@@ -1335,6 +1664,9 @@ impl YieldPool {
             if pt_out < min_pt_out || sy_out < min_sy_out {
                 return Err(ContractError::SlippageExceeded);
             }
+            if pt_out == 0 && sy_out == 0 {
+                return Err(ContractError::ZeroAmount);
+            }
 
             let pt_addr: Address = env
                 .storage()
@@ -1373,8 +1705,12 @@ impl YieldPool {
                 .instance()
                 .set(&DataKey::TotalSyReserve, &new_sy_res);
 
-            pt_client.transfer(&env.current_contract_address(), &receiver, &pt_out);
-            sy_client.transfer(&env.current_contract_address(), &receiver, &sy_out);
+            if pt_out > 0 {
+                pt_client.transfer(&env.current_contract_address(), &receiver, &pt_out);
+            }
+            if sy_out > 0 {
+                sy_client.transfer(&env.current_contract_address(), &receiver, &sy_out);
+            }
 
             bump_persistent_ttl(&env, &bal_key, maturity);
             bump_instance_ttl(&env, maturity);
@@ -1418,9 +1754,17 @@ impl YieldPool {
             .instance()
             .get(&DataKey::InitialAnchor)
             .unwrap_or(WAD);
+        let yt_addr: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::YtContract)
+            .ok_or(ContractError::NotInitialized)?;
+        let yt_client = YieldTokenClient::new(&env, &yt_addr);
+        let py_index = yt_client.get_py_index();
+        let asset_res = sy_to_asset(py_index, sy_res)?;
 
         let tau_wad = calculate_tau_wad(env.ledger().timestamp(), maturity);
-        get_exchange_rate(pt_res, sy_res, tau_wad, scalar_root, anchor)
+        get_exchange_rate(pt_res, asset_res, tau_wad, scalar_root, anchor)
     }
 
     pub fn get_reserves(env: Env) -> (i128, i128) {
@@ -1435,6 +1779,20 @@ impl YieldPool {
             .get(&DataKey::TotalSyReserve)
             .unwrap_or(0);
         (pt_res, sy_res)
+    }
+
+    pub fn get_py_reserves(env: Env) -> (i128, i128) {
+        let pt_principal: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PtPrincipalReserve)
+            .unwrap_or(0);
+        let yt_yield: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::YtYieldReserve)
+            .unwrap_or(0);
+        (pt_principal, yt_yield)
     }
 
     // =========================================================================
@@ -1502,27 +1860,7 @@ impl YieldPool {
             .instance()
             .get(&DataKey::Maturity)
             .unwrap_or(0);
-        let allow_key = AllowanceKey {
-            from: from.clone(),
-            spender: spender.clone(),
-        };
-        let allowance: Option<AllowanceValue> = env
-            .storage()
-            .temporary()
-            .get(&DataKey::Allowance(allow_key.clone()));
-        let mut allow_val = match allowance {
-            Some(v) => {
-                if v.expiration_ledger < env.ledger().sequence() {
-                    return Err(ContractError::InsufficientAllowance);
-                }
-                v
-            }
-            None => return Err(ContractError::InsufficientAllowance),
-        };
-
-        if allow_val.amount < amount {
-            return Err(ContractError::InsufficientAllowance);
-        }
+        Self::consume_allowance(&env, &from, &spender, amount)?;
 
         let from_key = DataKey::Balance(from.clone());
         let from_bal: i128 = env.storage().persistent().get(&from_key).unwrap_or(0);
@@ -1544,13 +1882,6 @@ impl YieldPool {
         env.storage()
             .instance()
             .set(&DataKey::TotalLpSupply, &new_total_lp);
-
-        if allow_val.amount != i128::MAX {
-            allow_val.amount -= amount;
-            let storage_key = DataKey::Allowance(allow_key);
-            env.storage().temporary().set(&storage_key, &allow_val);
-            bump_allowance_ttl(&env, &storage_key, allow_val.expiration_ledger);
-        }
 
         bump_persistent_ttl(&env, &from_key, maturity);
         bump_instance_ttl(&env, maturity);
@@ -1628,27 +1959,7 @@ impl YieldPool {
             .instance()
             .get(&DataKey::Maturity)
             .unwrap_or(0);
-        let allow_key = AllowanceKey {
-            from: from.clone(),
-            spender: spender.clone(),
-        };
-        let allowance: Option<AllowanceValue> = env
-            .storage()
-            .temporary()
-            .get(&DataKey::Allowance(allow_key.clone()));
-        let mut allow_val = match allowance {
-            Some(v) => {
-                if v.expiration_ledger < env.ledger().sequence() {
-                    return Err(ContractError::InsufficientAllowance);
-                }
-                v
-            }
-            None => return Err(ContractError::InsufficientAllowance),
-        };
-
-        if allow_val.amount < amount {
-            return Err(ContractError::InsufficientAllowance);
-        }
+        Self::consume_allowance(&env, &from, &spender, amount)?;
 
         let from_key = DataKey::Balance(from.clone());
         let from_bal: i128 = env.storage().persistent().get(&from_key).unwrap_or(0);
@@ -1668,13 +1979,6 @@ impl YieldPool {
                 .set(&from_key, &(from_bal - amount));
             env.storage().persistent().set(&to_key, &new_to);
             bump_persistent_ttl(&env, &to_key, maturity);
-        }
-
-        if allow_val.amount != i128::MAX {
-            allow_val.amount -= amount;
-            let storage_key = DataKey::Allowance(allow_key);
-            env.storage().temporary().set(&storage_key, &allow_val);
-            bump_allowance_ttl(&env, &storage_key, allow_val.expiration_ledger);
         }
 
         bump_persistent_ttl(&env, &from_key, maturity);

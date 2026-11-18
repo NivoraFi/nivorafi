@@ -1,16 +1,17 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Coins, Layers, RefreshCw, Repeat, Sparkles } from "lucide-react";
+import { AlertTriangle, Coins, Layers, RefreshCw, Repeat, Sparkles, Zap } from "lucide-react";
 import { useWallet } from "@/context/WalletProvider";
 import { LiveMarketSnapshot, LiveUserPortfolio, buildActionArgs } from "@/lib/stellar";
 import { SwapCard } from "./SwapCard";
+import { ZapCard } from "./ZapCard";
 import { MintCard } from "./MintCard";
 import { LiquidityCard } from "./LiquidityCard";
 import { RedeemCard } from "./RedeemCard";
 import { RolloverCard } from "./RolloverCard";
 
-export type DeskTab = "swap" | "mint" | "liquidity" | "redeem" | "rollover";
+export type DeskTab = "swap" | "zap" | "mint" | "liquidity" | "redeem" | "rollover";
 
 export interface TradingDeskProps {
   snapshot: LiveMarketSnapshot | null;
@@ -49,7 +50,7 @@ export function TradingDesk({
       try {
         const params = new URLSearchParams(window.location.search);
         const tabParam = params.get("tab") as DeskTab | null;
-        if (tabParam && ["swap", "mint", "liquidity", "redeem", "rollover"].includes(tabParam)) {
+        if (tabParam && ["swap", "zap", "mint", "liquidity", "redeem", "rollover"].includes(tabParam)) {
           return tabParam;
         }
       } catch {
@@ -95,7 +96,6 @@ export function TradingDesk({
     { id: "mint", label: "Mint", icon: <Sparkles className="h-3.5 w-3.5" /> },
     { id: "liquidity", label: "Pool", icon: <Layers className="h-3.5 w-3.5" /> },
     { id: "redeem", label: "Redeem", icon: <Coins className="h-3.5 w-3.5" /> },
-    { id: "rollover", label: "Rollover", icon: <RefreshCw className="h-3.5 w-3.5" /> },
   ];
 
   return (
@@ -122,7 +122,7 @@ export function TradingDesk({
         <div className="flex items-center justify-between border-b border-glass-rim px-4 sm:px-5 py-3 bg-surface-muted/40 backdrop-blur-md">
           <h2 className="sr-only tabular-mono">Trade Fixed Yield</h2>
 
-          <nav className="relative grid grid-cols-5 items-center gap-1 rounded-xl bg-surface-muted/70 p-1 border border-glass-rim w-full shadow-inner backdrop-blur-md">
+          <nav className="relative grid grid-cols-4 items-center gap-1 rounded-xl bg-surface-muted/70 p-1 border border-glass-rim w-full shadow-inner backdrop-blur-md">
             {tabs.map((tab) => {
               const isActive = activeTab === tab.id;
               return (
@@ -193,17 +193,6 @@ export function TradingDesk({
               onExecuteAction={onExecuteAction}
               onOpenDevDrawer={onOpenDevDrawer}
               onSwitchToRollover={() => handleTabChange("rollover")}
-            />
-          )}
-
-          {activeTab === "rollover" && (
-            <RolloverCard
-              snapshot={snapshot}
-              portfolio={portfolio}
-              busyAction={busyAction}
-              busyActions={busyActions}
-              onExecuteAction={onExecuteAction}
-              onOpenDevDrawer={onOpenDevDrawer}
             />
           )}
         </div>

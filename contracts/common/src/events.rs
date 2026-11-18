@@ -247,6 +247,16 @@ pub struct SyConfiguredEvent {
 
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CreatorWhitelistUpdatedEvent {
+    #[topic]
+    pub admin: Address,
+    #[topic]
+    pub creator: Address,
+    pub allowed: bool,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RolloverExecutedEvent {
     #[topic]
     pub user: Address,
@@ -271,4 +281,20 @@ pub struct RolloverPyExecutedEvent {
     pub pt_burned: i128,
     pub sy_received: i128,
     pub py_minted: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ZapInEvent {
+    #[topic]
+    pub caller: Address,
+    #[topic]
+    pub receiver: Address,
+    #[topic]
+    pub pool: Address,
+    pub mode: u32, // 0=PT, 1=YT, 2=LP
+    pub underlying_amount: i128,
+    pub sy_amount: i128,
+    pub out_amount: i128,
+    pub residual_sy: i128,
 }

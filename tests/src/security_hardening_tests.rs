@@ -163,7 +163,8 @@ fn test_security_all_11_reentrancy_guards_active() {
     let seed_sy = 3_000_000_000i128;
     f.usdc_admin_client.mint(&f.user1, &seed_sy);
     f.sy_client.deposit(&f.user1, &f.user1, &seed_sy);
-    f.pool_client.mint_py(&f.user1, &f.user1, &1_200_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &1_200_000_000, &f.maturity);
     f.pool_client
         .add_liquidity(&f.user1, &f.user1, &1_200_000_000, &1_000_000_000, &1);
 
@@ -171,7 +172,8 @@ fn test_security_all_11_reentrancy_guards_active() {
     let user2_fund = 1_000_000_000i128;
     f.usdc_admin_client.mint(&f.user2, &user2_fund);
     f.sy_client.deposit(&f.user2, &f.user2, &user2_fund);
-    f.pool_client.mint_py(&f.user2, &f.user2, &100_000_000);
+    f.pool_client
+        .mint_py(&f.user2, &f.user2, &100_000_000, &f.maturity);
 
     // Now engage the reentrancy lock (FlashLoanGuard in temporary storage)
     f.env.as_contract(&f.pool_client.address, || {
@@ -180,7 +182,9 @@ fn test_security_all_11_reentrancy_guards_active() {
     });
 
     // 1. mint_py must reject
-    let err_mint = f.pool_client.try_mint_py(&f.user2, &f.user2, &10_000);
+    let err_mint = f
+        .pool_client
+        .try_mint_py(&f.user2, &f.user2, &10_000, &f.maturity);
     assert_eq!(err_mint, Err(Ok(ContractError::ReentrancyLocked)));
 
     // 2. redeem_py must reject
@@ -204,27 +208,27 @@ fn test_security_all_11_reentrancy_guards_active() {
     assert_eq!(err_claim, Err(Ok(ContractError::ReentrancyLocked)));
 
     // 6. swap_exact_pt_for_sy must reject
-    let err_swap_pt_sy = f
-        .pool_client
-        .try_swap_exact_pt_for_sy(&f.user2, &f.user2, &10_000, &1);
+    let err_swap_pt_sy =
+        f.pool_client
+            .try_swap_exact_pt_for_sy(&f.user2, &f.user2, &10_000, &1, &f.maturity);
     assert_eq!(err_swap_pt_sy, Err(Ok(ContractError::ReentrancyLocked)));
 
     // 7. swap_exact_sy_for_pt must reject
-    let err_swap_sy_pt = f
-        .pool_client
-        .try_swap_exact_sy_for_pt(&f.user2, &f.user2, &10_000, &1);
+    let err_swap_sy_pt =
+        f.pool_client
+            .try_swap_exact_sy_for_pt(&f.user2, &f.user2, &10_000, &1, &f.maturity);
     assert_eq!(err_swap_sy_pt, Err(Ok(ContractError::ReentrancyLocked)));
 
     // 8. swap_exact_sy_for_yt must reject
-    let err_swap_sy_yt = f
-        .pool_client
-        .try_swap_exact_sy_for_yt(&f.user2, &f.user2, &10_000, &1);
+    let err_swap_sy_yt =
+        f.pool_client
+            .try_swap_exact_sy_for_yt(&f.user2, &f.user2, &10_000, &1, &f.maturity);
     assert_eq!(err_swap_sy_yt, Err(Ok(ContractError::ReentrancyLocked)));
 
     // 9. swap_exact_yt_for_sy must reject
-    let err_swap_yt_sy = f
-        .pool_client
-        .try_swap_exact_yt_for_sy(&f.user2, &f.user2, &10_000, &1);
+    let err_swap_yt_sy =
+        f.pool_client
+            .try_swap_exact_yt_for_sy(&f.user2, &f.user2, &10_000, &1, &f.maturity);
     assert_eq!(err_swap_yt_sy, Err(Ok(ContractError::ReentrancyLocked)));
 
     // 10. add_liquidity must reject
@@ -246,7 +250,9 @@ fn test_security_all_11_reentrancy_guards_active() {
     });
 
     // Now all operations succeed cleanly
-    let (pt, yt) = f.pool_client.mint_py(&f.user2, &f.user2, &10_000);
+    let (pt, yt) = f
+        .pool_client
+        .mint_py(&f.user2, &f.user2, &10_000, &f.maturity);
     assert_eq!(pt, 10_000);
     assert_eq!(yt, 10_000);
 }
@@ -281,7 +287,8 @@ fn test_security_auth_invocation_recordings() {
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
 
     // 1. mint_py must record user1's auth
-    f.pool_client.mint_py(&f.user1, &f.user1, &10_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &10_000_000, &f.maturity);
     let auths = f.env.auths();
     assert!(auths.iter().any(|(addr, _)| *addr == f.user1));
 
@@ -488,7 +495,8 @@ fn test_security_amm_proportion_boundaries_and_rejection() {
     let fund = 5_000_000_000i128;
     f.usdc_admin_client.mint(&f.user1, &fund);
     f.sy_client.deposit(&f.user1, &f.user1, &fund);
-    f.pool_client.mint_py(&f.user1, &f.user1, &2_000_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &2_000_000_000, &f.maturity);
 
     // Initial liquidity with out-of-bounds proportion (< 4%)
     // 10,000 PT and 1,000,000 SY -> proportion = ~0.99% < 4%
@@ -528,7 +536,8 @@ fn test_security_lp_dead_shares_and_dilution_invariants() {
     let fund = 5_000_000_000i128;
     f.usdc_admin_client.mint(&f.user1, &fund);
     f.sy_client.deposit(&f.user1, &f.user1, &fund);
-    f.pool_client.mint_py(&f.user1, &f.user1, &2_000_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &2_000_000_000, &f.maturity);
 
     // 1. Initial deposit smaller than MINIMUM_LIQUIDITY (1000 stroops) must revert with ZeroAmount
     let too_small = f.pool_client.try_add_liquidity(
@@ -552,7 +561,8 @@ fn test_security_lp_dead_shares_and_dilution_invariants() {
     // 3. Subsequent balanced deposit gets exact proportional LP shares
     f.usdc_admin_client.mint(&f.user2, &fund);
     f.sy_client.deposit(&f.user2, &f.user2, &fund);
-    f.pool_client.mint_py(&f.user2, &f.user2, &1_000_000_000);
+    f.pool_client
+        .mint_py(&f.user2, &f.user2, &1_000_000_000, &f.maturity);
 
     let pt_sub = 500_000_000i128;
     let sy_sub = 500_000_000i128;
@@ -947,7 +957,7 @@ fn test_governance_pause_state_changing_methods_fail_yield_pool() {
         .deposit(&f.base.user1, &f.base.user1, &seed);
     f.base
         .pool_client
-        .mint_py(&f.base.user1, &f.base.user1, &1_000_000_000);
+        .mint_py(&f.base.user1, &f.base.user1, &1_000_000_000, &f.base.maturity);
     f.base.pool_client.add_liquidity(
         &f.base.user1,
         &f.base.user1,
@@ -963,7 +973,7 @@ fn test_governance_pause_state_changing_methods_fail_yield_pool() {
     assert_eq!(
         f.base
             .pool_client
-            .try_mint_py(&f.base.user1, &f.base.user1, &1000),
+            .try_mint_py(&f.base.user1, &f.base.user1, &1000, &f.base.maturity),
         Err(Ok(ContractError::ContractPaused))
     );
     assert_eq!(
@@ -973,27 +983,43 @@ fn test_governance_pause_state_changing_methods_fail_yield_pool() {
         Err(Ok(ContractError::ContractPaused))
     );
     assert_eq!(
-        f.base
-            .pool_client
-            .try_swap_exact_pt_for_sy(&f.base.user1, &f.base.user1, &1000, &1),
+        f.base.pool_client.try_swap_exact_pt_for_sy(
+            &f.base.user1,
+            &f.base.user1,
+            &1000,
+            &1,
+            &f.base.maturity,
+        ),
         Err(Ok(ContractError::ContractPaused))
     );
     assert_eq!(
-        f.base
-            .pool_client
-            .try_swap_exact_sy_for_pt(&f.base.user1, &f.base.user1, &1000, &1),
+        f.base.pool_client.try_swap_exact_sy_for_pt(
+            &f.base.user1,
+            &f.base.user1,
+            &1000,
+            &1,
+            &f.base.maturity,
+        ),
         Err(Ok(ContractError::ContractPaused))
     );
     assert_eq!(
-        f.base
-            .pool_client
-            .try_swap_exact_sy_for_yt(&f.base.user1, &f.base.user1, &1000, &1),
+        f.base.pool_client.try_swap_exact_sy_for_yt(
+            &f.base.user1,
+            &f.base.user1,
+            &1000,
+            &1,
+            &f.base.maturity,
+        ),
         Err(Ok(ContractError::ContractPaused))
     );
     assert_eq!(
-        f.base
-            .pool_client
-            .try_swap_exact_yt_for_sy(&f.base.user1, &f.base.user1, &1000, &1),
+        f.base.pool_client.try_swap_exact_yt_for_sy(
+            &f.base.user1,
+            &f.base.user1,
+            &1000,
+            &1,
+            &f.base.maturity,
+        ),
         Err(Ok(ContractError::ContractPaused))
     );
     assert_eq!(
@@ -1191,11 +1217,11 @@ fn test_governance_pause_read_only_methods_succeed_all_contracts() {
     assert_eq!(f.base.pool_client.decimals(), 7);
     assert_eq!(
         f.base.pool_client.name(),
-        String::from_str(&f.base.env, "Pendle LP Token")
+        String::from_str(&f.base.env, "NivoraFi LP aaa")
     );
     assert_eq!(
         f.base.pool_client.symbol(),
-        String::from_str(&f.base.env, "LP-PT-SY")
+        String::from_str(&f.base.env, "LP-aaa")
     );
     assert_eq!(f.base.pool_client.total_supply(), 0);
     assert_eq!(f.base.pool_client.balance(&f.base.user1), 0);
@@ -1211,11 +1237,11 @@ fn test_governance_pause_read_only_methods_succeed_all_contracts() {
     assert_eq!(f.base.sy_client.decimals(), 7);
     assert_eq!(
         f.base.sy_client.name(),
-        String::from_str(&f.base.env, "Standardized Yield Blend USDC")
+        String::from_str(&f.base.env, "Standardized Yield Blend aaa")
     );
     assert_eq!(
         f.base.sy_client.symbol(),
-        String::from_str(&f.base.env, "sy-bUSDC")
+        String::from_str(&f.base.env, "sy-baaa")
     );
     assert_eq!(f.base.sy_client.total_supply(), 0);
     assert_eq!(f.base.sy_client.total_shares(), 0);
@@ -1269,7 +1295,7 @@ fn test_governance_unpause_resumes_full_operations_cleanly() {
     let (pt_out, yt_out) = f
         .base
         .pool_client
-        .mint_py(&f.base.user1, &f.base.user1, &1_000_000_000);
+        .mint_py(&f.base.user1, &f.base.user1, &1_000_000_000, &f.base.maturity);
     assert_eq!(pt_out, 1_000_000_000);
     assert_eq!(yt_out, 1_000_000_000);
 
@@ -1350,7 +1376,7 @@ fn test_governance_upgrade_preserves_storage_and_resumes_operations() {
         .deposit(&f.base.user1, &f.base.user1, &seed);
     f.base
         .pool_client
-        .mint_py(&f.base.user1, &f.base.user1, &1_000_000_000);
+        .mint_py(&f.base.user1, &f.base.user1, &1_000_000_000, &f.base.maturity);
     f.base.pool_client.add_liquidity(
         &f.base.user1,
         &f.base.user1,

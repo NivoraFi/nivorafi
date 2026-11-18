@@ -221,7 +221,8 @@ fn test_empirical_parity_convergence_at_maturity() {
     let init_sy = 2_500_000_000i128;
     f.usdc_admin_client.mint(&f.user1, &init_sy);
     f.sy_client.deposit(&f.user1, &f.user1, &init_sy);
-    f.pool_client.mint_py(&f.user1, &f.user1, &1_200_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &1_200_000_000, &f.maturity);
     f.pool_client
         .add_liquidity(&f.user1, &f.user1, &1_200_000_000, &1_000_000_000, &1);
 
@@ -264,7 +265,8 @@ fn test_empirical_single_pool_yt_flash_swap_collateral_conservation() {
     let seed_sy = 5_000_000_000i128;
     f.usdc_admin_client.mint(&f.user1, &seed_sy);
     f.sy_client.deposit(&f.user1, &f.user1, &seed_sy);
-    f.pool_client.mint_py(&f.user1, &f.user1, &2_000_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &2_000_000_000, &f.maturity);
     f.pool_client
         .add_liquidity(&f.user1, &f.user1, &2_000_000_000, &1_500_000_000, &1);
 
@@ -293,19 +295,27 @@ fn test_empirical_single_pool_yt_flash_swap_collateral_conservation() {
         if is_buy {
             // Buy YT with SY via flash swap: spend between 50_000 and 200_000 stroops
             let sy_spend = next_rand(50_000, 200_000);
-            let (yt_received, sy_spent) = f
-                .pool_client
-                .swap_exact_sy_for_yt(&f.user2, &f.user2, &sy_spend, &1);
+            let (yt_received, fee_yt) = f.pool_client.swap_exact_sy_for_yt(
+                &f.user2,
+                &f.user2,
+                &sy_spend,
+                &1,
+                &f.maturity,
+            );
             assert!(yt_received > 0);
-            assert_eq!(sy_spent, sy_spend);
+            assert!(fee_yt > 0);
             user2_yt_accumulated += yt_received;
         } else {
             // Sell a fraction of accumulated YT for SY via flash swap
             let yt_to_sell = next_rand(10_000, user2_yt_accumulated.min(100_000));
             if yt_to_sell > 0 {
-                let (sy_received, _fee) =
-                    f.pool_client
-                        .swap_exact_yt_for_sy(&f.user2, &f.user2, &yt_to_sell, &1);
+                let (sy_received, _fee) = f.pool_client.swap_exact_yt_for_sy(
+                    &f.user2,
+                    &f.user2,
+                    &yt_to_sell,
+                    &1,
+                    &f.maturity,
+                );
                 assert!(sy_received > 0);
                 user2_yt_accumulated -= yt_to_sell;
             }
@@ -415,7 +425,8 @@ fn test_empirical_negative_yield_rejection_floor() {
     f.sy_client.deposit(&f.user1, &f.user1, &init_sy);
 
     // Initial pool with barely positive yield: 1,005,000 PT and 1,000,000 SY
-    f.pool_client.mint_py(&f.user1, &f.user1, &1_005_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &1_005_000_000, &f.maturity);
     f.pool_client
         .add_liquidity(&f.user1, &f.user1, &1_005_000_000, &1_000_000_000, &1);
 
@@ -425,9 +436,9 @@ fn test_empirical_negative_yield_rejection_floor() {
     f.sy_client.deposit(&f.user2, &f.user2, &user2_sy);
 
     // Buying PT with 50_000_000 SY: would drain ~50M PT and add 50M SY, making PT < SY
-    let swap_res = f
-        .pool_client
-        .try_swap_exact_sy_for_pt(&f.user2, &f.user2, &50_000_000, &1);
+    let swap_res =
+        f.pool_client
+            .try_swap_exact_sy_for_pt(&f.user2, &f.user2, &50_000_000, &1, &f.maturity);
     assert!(
         swap_res.is_err(),
         "Expected negative yield swap to fail, but it succeeded!"
@@ -445,16 +456,17 @@ fn test_empirical_negative_yield_rejection_floor() {
     f2.usdc_admin_client.mint(&f2.user1, &init_sy);
     f2.sy_client.deposit(&f2.user1, &f2.user1, &init_sy);
     // Balanced pool: 1,000,000 PT and 1,000,000 SY => E = 1.0 WAD
-    f2.pool_client.mint_py(&f2.user1, &f2.user1, &1_000_000_000);
+    f2.pool_client
+        .mint_py(&f2.user1, &f2.user1, &1_000_000_000, &f2.maturity);
     f2.pool_client
         .add_liquidity(&f2.user1, &f2.user1, &1_000_000_000, &1_000_000_000, &1);
 
     f2.usdc_admin_client.mint(&f2.user2, &user2_sy);
     f2.sy_client.deposit(&f2.user2, &f2.user2, &user2_sy);
 
-    let flash_res = f2
-        .pool_client
-        .try_swap_exact_sy_for_yt(&f2.user2, &f2.user2, &10_000, &1);
+    let flash_res =
+        f2.pool_client
+            .try_swap_exact_sy_for_yt(&f2.user2, &f2.user2, &10_000, &1, &f2.maturity);
     assert!(
         flash_res.is_err(),
         "Flash swap buying YT in zero-yield pool must revert!"
@@ -472,38 +484,54 @@ fn test_empirical_reentrancy_teardown_same_ledger_dos_elimination() {
     let fund = 5_000_000_000i128;
     f.usdc_admin_client.mint(&f.user1, &fund);
     f.sy_client.deposit(&f.user1, &f.user1, &fund);
-    f.pool_client.mint_py(&f.user1, &f.user1, &2_000_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &2_000_000_000, &f.maturity);
     f.pool_client
         .add_liquidity(&f.user1, &f.user1, &1_200_000_000, &1_000_000_000, &1);
 
     f.usdc_admin_client.mint(&f.user2, &fund);
     f.sy_client.deposit(&f.user2, &f.user2, &fund);
-    f.pool_client.mint_py(&f.user2, &f.user2, &1_000_000_000);
+    f.pool_client
+        .mint_py(&f.user2, &f.user2, &1_000_000_000, &f.maturity);
 
     // 1. High-frequency sequence of 50 consecutive operations in the EXACT same ledger
     for i in 0..50 {
         match i % 5 {
             0 => {
-                let (pt, yt) = f.pool_client.mint_py(&f.user2, &f.user2, &100_000);
+                let (pt, yt) = f
+                    .pool_client
+                    .mint_py(&f.user2, &f.user2, &100_000, &f.maturity);
                 assert_eq!(pt, 100_000);
                 assert_eq!(yt, 100_000);
             }
             1 => {
-                let (sy_out, _fee) = f
-                    .pool_client
-                    .swap_exact_pt_for_sy(&f.user2, &f.user2, &50_000, &1);
+                let (sy_out, _fee) = f.pool_client.swap_exact_pt_for_sy(
+                    &f.user2,
+                    &f.user2,
+                    &50_000,
+                    &1,
+                    &f.maturity,
+                );
                 assert!(sy_out > 0);
             }
             2 => {
-                let (pt_out, _fee) = f
-                    .pool_client
-                    .swap_exact_sy_for_pt(&f.user2, &f.user2, &30_000, &1);
+                let (pt_out, _fee) = f.pool_client.swap_exact_sy_for_pt(
+                    &f.user2,
+                    &f.user2,
+                    &30_000,
+                    &1,
+                    &f.maturity,
+                );
                 assert!(pt_out > 0);
             }
             3 => {
-                let (yt_out, _spent) = f
-                    .pool_client
-                    .swap_exact_sy_for_yt(&f.user2, &f.user2, &20_000, &1);
+                let (yt_out, _fee) = f.pool_client.swap_exact_sy_for_yt(
+                    &f.user2,
+                    &f.user2,
+                    &20_000,
+                    &1,
+                    &f.maturity,
+                );
                 assert!(yt_out > 0);
             }
             4 => {
@@ -518,23 +546,35 @@ fn test_empirical_reentrancy_teardown_same_ledger_dos_elimination() {
     // Ensure that failed transactions cleanly teardown reentrancy guards, causing ZERO DoS lock!
     for _ in 0..10 {
         // Deliberately trigger an error (ZeroAmount)
-        let fail_mint = f.pool_client.try_mint_py(&f.user2, &f.user2, &0);
+        let fail_mint = f
+            .pool_client
+            .try_mint_py(&f.user2, &f.user2, &0, &f.maturity);
         assert!(fail_mint.is_err());
 
         // Immediately following call MUST succeed without ReentrancyLocked
-        let ok_mint = f.pool_client.mint_py(&f.user2, &f.user2, &1_000);
+        let ok_mint = f
+            .pool_client
+            .mint_py(&f.user2, &f.user2, &1_000, &f.maturity);
         assert_eq!(ok_mint.0, 1_000);
 
         // Deliberately trigger slippage error
-        let fail_swap =
-            f.pool_client
-                .try_swap_exact_pt_for_sy(&f.user2, &f.user2, &10_000, &i128::MAX);
+        let fail_swap = f.pool_client.try_swap_exact_pt_for_sy(
+            &f.user2,
+            &f.user2,
+            &10_000,
+            &i128::MAX,
+            &f.maturity,
+        );
         assert!(fail_swap.is_err());
 
         // Immediately following call MUST succeed
-        let ok_swap = f
-            .pool_client
-            .swap_exact_pt_for_sy(&f.user2, &f.user2, &10_000, &1);
+        let ok_swap = f.pool_client.swap_exact_pt_for_sy(
+            &f.user2,
+            &f.user2,
+            &10_000,
+            &1,
+            &f.maturity,
+        );
         assert!(ok_swap.0 > 0);
     }
 
@@ -545,7 +585,9 @@ fn test_empirical_reentrancy_teardown_same_ledger_dos_elimination() {
         f.env.storage().temporary().set(&guard_key, &true);
     });
 
-    let reentrant_attempt = f.pool_client.try_mint_py(&f.user2, &f.user2, &10_000);
+    let reentrant_attempt = f
+        .pool_client
+        .try_mint_py(&f.user2, &f.user2, &10_000, &f.maturity);
     assert!(reentrant_attempt.is_err());
 
     // Once guard is cleared (simulating normal function exit), subsequent calls proceed
@@ -554,7 +596,9 @@ fn test_empirical_reentrancy_teardown_same_ledger_dos_elimination() {
         f.env.storage().temporary().remove(&guard_key);
     });
 
-    let normal_call = f.pool_client.mint_py(&f.user2, &f.user2, &10_000);
+    let normal_call = f
+        .pool_client
+        .mint_py(&f.user2, &f.user2, &10_000, &f.maturity);
     assert_eq!(normal_call.0, 10_000);
 }
 
@@ -570,7 +614,8 @@ fn test_empirical_swap_sy_for_pt_negative_yield_breach() {
     f.sy_client.deposit(&f.user1, &f.user1, &init_sy);
 
     // Initial pool with barely positive yield: 1,005,000 PT and 1,000,000 SY (PT > SY)
-    f.pool_client.mint_py(&f.user1, &f.user1, &1_005_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &1_005_000_000, &f.maturity);
     f.pool_client
         .add_liquidity(&f.user1, &f.user1, &1_005_000_000, &1_000_000_000, &1);
 
@@ -587,9 +632,9 @@ fn test_empirical_swap_sy_for_pt_negative_yield_breach() {
     // at (pt_reserve, new_sy) = (1005M, 1003M) would succeed because 1005M > 1003M,
     // but deducting net_pt_out ~ 2.97M PT would leave PT (1,002,029,854) < SY (1,003,000,000).
     // Invariant hardening MUST cleanly reject this trade with NegativeYieldNotSupported!
-    let swap_res = f
-        .pool_client
-        .try_swap_exact_sy_for_pt(&f.user2, &f.user2, &3_000_000, &1);
+    let swap_res =
+        f.pool_client
+            .try_swap_exact_sy_for_pt(&f.user2, &f.user2, &3_000_000, &1, &f.maturity);
     assert_eq!(
         swap_res,
         Err(Ok(ContractError::NegativeYieldNotSupported)),
@@ -615,7 +660,8 @@ fn test_empirical_subsequent_add_liquidity_skews_proportion_and_yield() {
     let init_sy = 100_000_000_000i128;
     f.usdc_admin_client.mint(&f.user1, &init_sy);
     f.sy_client.deposit(&f.user1, &f.user1, &init_sy);
-    f.pool_client.mint_py(&f.user1, &f.user1, &50_000_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &50_000_000_000, &f.maturity);
 
     // Initial balanced liquidity (50% PT, 50% SY)
     f.pool_client
@@ -637,7 +683,8 @@ fn test_empirical_subsequent_add_liquidity_skews_proportion_and_yield() {
     let init_sy2 = 50_000_000_000i128;
     f2.usdc_admin_client.mint(&f2.user1, &init_sy2);
     f2.sy_client.deposit(&f2.user1, &f2.user1, &init_sy2);
-    f2.pool_client.mint_py(&f2.user1, &f2.user1, &2_000_000_000);
+    f2.pool_client
+        .mint_py(&f2.user1, &f2.user1, &2_000_000_000, &f2.maturity);
     f2.pool_client
         .add_liquidity(&f2.user1, &f2.user1, &1_000_000_000, &1_000_000_000, &1);
 
@@ -674,7 +721,8 @@ fn test_empirical_swap_yt_for_sy_negative_yield_breach() {
     f.sy_client.deposit(&f.user1, &f.user1, &init_sy);
 
     // Initial pool with barely positive yield: 1,005,000,000 PT and 1,000,000,000 SY (PT > SY)
-    f.pool_client.mint_py(&f.user1, &f.user1, &1_005_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &1_005_000_000, &f.maturity);
     f.pool_client
         .add_liquidity(&f.user1, &f.user1, &1_005_000_000, &1_000_000_000, &1);
 
@@ -686,16 +734,17 @@ fn test_empirical_swap_yt_for_sy_negative_yield_breach() {
     f.usdc_admin_client.mint(&f.user2, &user2_sy);
     f.sy_client.deposit(&f.user2, &f.user2, &user2_sy);
     // Mint PY so user2 holds YT tokens
-    f.pool_client.mint_py(&f.user2, &f.user2, &10_000_000);
+    f.pool_client
+        .mint_py(&f.user2, &f.user2, &10_000_000, &f.maturity);
 
     // Selling 3,000,000 YT:
     // new_pt = 1,005,000,000 - 3,000,000 = 1,002,000,000.
     // gross_sy_buy ~ 2,999,852 added to SY gives new_sy = 1,002,999,852.
     // Resulting state: new_pt (1,002,000,000) < new_sy (1,002,999,852)!
     // Invariant hardening MUST cleanly reject this trade with NegativeYieldNotSupported!
-    let swap_res = f
-        .pool_client
-        .try_swap_exact_yt_for_sy(&f.user2, &f.user2, &3_000_000, &1);
+    let swap_res =
+        f.pool_client
+            .try_swap_exact_yt_for_sy(&f.user2, &f.user2, &3_000_000, &1, &f.maturity);
     assert_eq!(
         swap_res,
         Err(Ok(ContractError::NegativeYieldNotSupported)),
@@ -723,7 +772,8 @@ fn test_empirical_initial_add_liquidity_invariants() {
     let fund = 5_000_000_000i128;
     f1.usdc_admin_client.mint(&f1.user1, &fund);
     f1.sy_client.deposit(&f1.user1, &f1.user1, &fund);
-    f1.pool_client.mint_py(&f1.user1, &f1.user1, &3_000_000_000);
+    f1.pool_client
+        .mint_py(&f1.user1, &f1.user1, &3_000_000_000, &f1.maturity);
 
     let res_neg =
         f1.pool_client
@@ -778,7 +828,8 @@ fn test_empirical_adversarial_multi_action_invariant_fuzzing() {
     let seed_sy = 20_000_000_000i128;
     f.usdc_admin_client.mint(&f.user1, &seed_sy);
     f.sy_client.deposit(&f.user1, &f.user1, &seed_sy);
-    f.pool_client.mint_py(&f.user1, &f.user1, &10_000_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &10_000_000_000, &f.maturity);
 
     // Initial pool: 2,000,000,000 PT and 1,800,000,000 SY (p ~ 52.6%, E > 1.0 WAD)
     f.pool_client
@@ -787,7 +838,8 @@ fn test_empirical_adversarial_multi_action_invariant_fuzzing() {
     let user2_fund = 10_000_000_000i128;
     f.usdc_admin_client.mint(&f.user2, &user2_fund);
     f.sy_client.deposit(&f.user2, &f.user2, &user2_fund);
-    f.pool_client.mint_py(&f.user2, &f.user2, &5_000_000_000);
+    f.pool_client
+        .mint_py(&f.user2, &f.user2, &5_000_000_000, &f.maturity);
 
     // LCG pseudo-random generator
     let mut rng: u64 = 0x1337BEEF98765432;
@@ -806,30 +858,46 @@ fn test_empirical_adversarial_multi_action_invariant_fuzzing() {
             0 => {
                 // swap_exact_pt_for_sy (increases PT, decreases SY)
                 let pt_in = (next_u64() % 50_000_000 + 10_000) as i128;
-                let _ = f
-                    .pool_client
-                    .try_swap_exact_pt_for_sy(&f.user2, &f.user2, &pt_in, &0);
+                let _ = f.pool_client.try_swap_exact_pt_for_sy(
+                    &f.user2,
+                    &f.user2,
+                    &pt_in,
+                    &0,
+                    &f.maturity,
+                );
             }
             1 => {
                 // swap_exact_sy_for_pt (decreases PT, increases SY)
                 let sy_in = (next_u64() % 50_000_000 + 10_000) as i128;
-                let _ = f
-                    .pool_client
-                    .try_swap_exact_sy_for_pt(&f.user2, &f.user2, &sy_in, &0);
+                let _ = f.pool_client.try_swap_exact_sy_for_pt(
+                    &f.user2,
+                    &f.user2,
+                    &sy_in,
+                    &0,
+                    &f.maturity,
+                );
             }
             2 => {
                 // swap_exact_sy_for_yt (increases PT, decreases SY)
                 let sy_in = (next_u64() % 30_000_000 + 10_000) as i128;
-                let _ = f
-                    .pool_client
-                    .try_swap_exact_sy_for_yt(&f.user2, &f.user2, &sy_in, &0);
+                let _ = f.pool_client.try_swap_exact_sy_for_yt(
+                    &f.user2,
+                    &f.user2,
+                    &sy_in,
+                    &0,
+                    &f.maturity,
+                );
             }
             3 => {
                 // swap_exact_yt_for_sy (decreases PT, increases SY)
                 let yt_in = (next_u64() % 20_000_000 + 10_000) as i128;
-                let _ = f
-                    .pool_client
-                    .try_swap_exact_yt_for_sy(&f.user2, &f.user2, &yt_in, &0);
+                let _ = f.pool_client.try_swap_exact_yt_for_sy(
+                    &f.user2,
+                    &f.user2,
+                    &yt_in,
+                    &0,
+                    &f.maturity,
+                );
             }
             4 => {
                 // add_liquidity (balanced or imbalanced)

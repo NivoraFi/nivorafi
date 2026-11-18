@@ -25,7 +25,7 @@ fn test_stress_periodic_vs_lump_sum_across_4_users_convergence() {
     for u in users.iter() {
         f.usdc_admin_client.mint(u, &amount);
         f.sy_client.deposit(u, u, &amount);
-        f.pool_client.mint_py(u, u, &amount);
+        f.pool_client.mint_py(u, u, &amount, &f.maturity);
     }
 
     let mut u1_claimed_sy = 0i128;
@@ -136,7 +136,7 @@ fn test_stress_interleaved_yt_transfers_and_checkpoint_integrity() {
     for u in [&ua, &u_control] {
         f.usdc_admin_client.mint(u, &amount);
         f.sy_client.deposit(u, u, &amount);
-        f.pool_client.mint_py(u, u, &amount);
+        f.pool_client.mint_py(u, u, &amount, &f.maturity);
     }
 
     // Day 30: advance 30 days
@@ -179,7 +179,7 @@ fn test_stress_interleaved_yt_transfers_and_checkpoint_integrity() {
         .deposit(&f_ctrl.user1, &f_ctrl.user1, &amount);
     f_ctrl
         .pool_client
-        .mint_py(&f_ctrl.user1, &f_ctrl.user1, &amount);
+        .mint_py(&f_ctrl.user1, &f_ctrl.user1, &amount, &f_ctrl.maturity);
 
     advance_time_and_ledgers(&f_ctrl, 30 * 86400);
     let mut ctrl_claimed = f_ctrl.pool_client.claim_yield(&f_ctrl.user1, &f_ctrl.user1);
@@ -222,7 +222,7 @@ fn test_stress_zero_deficit_invariant_multi_user_randomized_claims() {
         let u = Address::generate(&f.env);
         f.usdc_admin_client.mint(&u, &amount_per_user);
         f.sy_client.deposit(&u, &u, &amount_per_user);
-        f.pool_client.mint_py(&u, &u, &amount_per_user);
+        f.pool_client.mint_py(&u, &u, &amount_per_user, &f.maturity);
         users.push(u);
     }
 
@@ -289,7 +289,7 @@ fn test_stress_zero_deficit_with_early_py_redemptions() {
 
     f.usdc_admin_client.mint(&f.user1, &amount);
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &amount);
+    f.pool_client.mint_py(&f.user1, &f.user1, &amount, &f.maturity);
 
     let mut total_claimed = 0i128;
     let mut total_unwound = 0i128;
@@ -298,10 +298,9 @@ fn test_stress_zero_deficit_with_early_py_redemptions() {
     advance_time_and_ledgers(&f, 30 * 86400);
     total_claimed += f.pool_client.claim_yield(&f.user1, &f.user1);
 
-    // Early unwind 3,000 PT/YT
+    // Early unwind 3,000 PT/YT (pays PT principal share at current b_rate)
     let unwind_1 = 3_000_000_000i128;
-    f.pool_client.redeem_py(&f.user1, &f.user1, &unwind_1);
-    total_unwound += unwind_1;
+    total_unwound += f.pool_client.redeem_py(&f.user1, &f.user1, &unwind_1);
 
     let pool_bal_1 = f.sy_client.balance(&f.pool_client.address);
     assert_eq!(pool_bal_1 + total_claimed + total_unwound, amount);
@@ -312,8 +311,7 @@ fn test_stress_zero_deficit_with_early_py_redemptions() {
 
     // Early unwind 2,000 PT/YT
     let unwind_2 = 2_000_000_000i128;
-    f.pool_client.redeem_py(&f.user1, &f.user1, &unwind_2);
-    total_unwound += unwind_2;
+    total_unwound += f.pool_client.redeem_py(&f.user1, &f.user1, &unwind_2);
 
     let pool_bal_2 = f.sy_client.balance(&f.pool_client.address);
     assert_eq!(pool_bal_2 + total_claimed + total_unwound, amount);
@@ -325,6 +323,16 @@ fn test_stress_zero_deficit_with_early_py_redemptions() {
 
     let final_pool_bal = f.sy_client.balance(&f.pool_client.address);
     assert_eq!(final_pool_bal + total_claimed + total_unwound, amount);
+
+    // Remaining 5,000 PT must still be 100% solvent post-maturity!
+    let rem_pt = f.pt_client.balance(&f.user1);
+    assert_eq!(rem_pt, 5_000_000_000);
+    let pt_sy = f
+        .pool_client
+        .redeem_pt_post_maturity(&f.user1, &f.user1, &rem_pt);
+    let settled_rate = f.pool_client.get_market_state().maturity_index;
+    let rem_usdc = (pt_sy * settled_rate) / common::fixed_point::SCALAR_9;
+    assert!((rem_usdc - rem_pt).abs() <= 5);
 }
 
 // =============================================================================
@@ -344,7 +352,8 @@ fn test_stress_pt_solvency_under_diverse_yield_claiming_schedules() {
     let f1 = setup_accrual_protocol(WAD / 10);
     f1.usdc_admin_client.mint(&f1.user1, &principal);
     f1.sy_client.deposit(&f1.user1, &f1.user1, &principal);
-    f1.pool_client.mint_py(&f1.user1, &f1.user1, &principal);
+    f1.pool_client
+        .mint_py(&f1.user1, &f1.user1, &principal, &f1.maturity);
 
     for _ in 0..18 {
         advance_time_and_ledgers(&f1, 10 * 86400);
@@ -367,7 +376,8 @@ fn test_stress_pt_solvency_under_diverse_yield_claiming_schedules() {
     let f2 = setup_accrual_protocol(WAD / 10);
     f2.usdc_admin_client.mint(&f2.user1, &principal);
     f2.sy_client.deposit(&f2.user1, &f2.user1, &principal);
-    f2.pool_client.mint_py(&f2.user1, &f2.user1, &principal);
+    f2.pool_client
+        .mint_py(&f2.user1, &f2.user1, &principal, &f2.maturity);
 
     advance_time_and_ledgers(&f2, 180 * 86400);
     f2.pool_client.settle_maturity();
@@ -379,18 +389,22 @@ fn test_stress_pt_solvency_under_diverse_yield_claiming_schedules() {
     f2.usdc_admin_client
         .mint(&f2.blend_client.address, &principal);
     let usdc_2 = f2.sy_client.redeem(&f2.user1, &f2.user1, &pt_sy_out_2);
-    // PT recovers 100% of principal
+    // PT recovers 100% of principal within integer division rounding
     assert!(
-        usdc_2 >= principal,
-        "Protocol 2 PT under-recovered principal: {}",
+        (usdc_2 - principal).abs() <= 25,
+        "Protocol 2 PT not 100% solvent: {}",
         usdc_2
     );
+    // YT yield was properly reserved and survives PT redemption!
+    let yt_sy_2 = f2.pool_client.claim_yield(&f2.user1, &f2.user1);
+    assert!(yt_sy_2 > 0, "Protocol 2 YT yield was stolen by PT redemption");
 
     // Protocol 3: High interest rate (40% APR)
     let f3 = setup_accrual_protocol(WAD * 40 / 100);
     f3.usdc_admin_client.mint(&f3.user1, &principal);
     f3.sy_client.deposit(&f3.user1, &f3.user1, &principal);
-    f3.pool_client.mint_py(&f3.user1, &f3.user1, &principal);
+    f3.pool_client
+        .mint_py(&f3.user1, &f3.user1, &principal, &f3.maturity);
 
     for _ in 0..6 {
         advance_time_and_ledgers(&f3, 30 * 86400);
@@ -418,7 +432,7 @@ fn test_stress_pt_redemption_in_fractional_tranches() {
 
     f.usdc_admin_client.mint(&f.user1, &amount);
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &amount);
+    f.pool_client.mint_py(&f.user1, &f.user1, &amount, &f.maturity);
 
     // Claim yield periodically
     for _ in 0..6 {
@@ -480,7 +494,7 @@ fn test_stress_amm_swaps_strictly_enforce_proportion_bounds() {
     f.sy_client
         .deposit(&f.lp_provider, &f.lp_provider, &total_mint);
     f.pool_client
-        .mint_py(&f.lp_provider, &f.lp_provider, &pt_init);
+        .mint_py(&f.lp_provider, &f.lp_provider, &pt_init, &f.maturity);
     f.pool_client
         .add_liquidity(&f.lp_provider, &f.lp_provider, &pt_init, &sy_init, &0);
 
@@ -491,12 +505,13 @@ fn test_stress_amm_swaps_strictly_enforce_proportion_bounds() {
     let huge_pt = 100_000_000_000i128; // 100,000 PT
     f.usdc_admin_client.mint(&trader, &huge_pt);
     f.sy_client.deposit(&trader, &trader, &huge_pt);
-    f.pool_client.mint_py(&trader, &trader, &huge_pt);
+    f.pool_client
+        .mint_py(&trader, &trader, &huge_pt, &f.maturity);
 
     // Attempt swap that breaches upper proportion bound (0.96)
-    let result_upper = f
-        .pool_client
-        .try_swap_exact_pt_for_sy(&trader, &trader, &huge_pt, &0);
+    let result_upper =
+        f.pool_client
+            .try_swap_exact_pt_for_sy(&trader, &trader, &huge_pt, &0, &f.maturity);
     assert!(
         result_upper.is_err(),
         "Expected upper proportion breach error, but swap succeeded"
@@ -505,9 +520,9 @@ fn test_stress_amm_swaps_strictly_enforce_proportion_bounds() {
     // 2. Stress Test: Massive swap_exact_sy_for_pt that pushes proportion < 0.04 or triggers negative yield
     // Large SY in drains PT, pushing proportion down toward 0
     let large_sy = 2_000_000_000i128; // 2,000 SY (larger than total PT reserve of 1,200)
-    let result_lower = f
-        .pool_client
-        .try_swap_exact_sy_for_pt(&trader, &trader, &large_sy, &0);
+    let result_lower =
+        f.pool_client
+            .try_swap_exact_sy_for_pt(&trader, &trader, &large_sy, &0, &f.maturity);
     assert!(
         result_lower.is_err(),
         "Expected lower proportion / insufficient balance error, but swap succeeded"
@@ -523,9 +538,9 @@ fn test_stress_amm_swaps_strictly_enforce_proportion_bounds() {
 
     for i in 0..10 {
         // Swap SY for PT
-        let (pt_out, _) = f
-            .pool_client
-            .swap_exact_sy_for_pt(&trader, &trader, &trade_amount, &0);
+        let (pt_out, _) =
+            f.pool_client
+                .swap_exact_sy_for_pt(&trader, &trader, &trade_amount, &0, &f.maturity);
         assert!(pt_out > 0);
 
         let (pt_res, sy_res) = f.pool_client.get_reserves();
@@ -553,9 +568,9 @@ fn test_stress_amm_swaps_strictly_enforce_proportion_bounds() {
         );
 
         // Swap PT for SY
-        let (sy_out, _) = f
-            .pool_client
-            .swap_exact_pt_for_sy(&trader, &trader, &trade_amount, &0);
+        let (sy_out, _) =
+            f.pool_client
+                .swap_exact_pt_for_sy(&trader, &trader, &trade_amount, &0, &f.maturity);
         assert!(sy_out > 0);
 
         let (pt_res2, sy_res2) = f.pool_client.get_reserves();
@@ -597,7 +612,8 @@ fn test_stress_unclaimed_yt_when_pt_redeems_first_behavior() {
 
     f.usdc_admin_client.mint(&pt_holder, &amount);
     f.sy_client.deposit(&pt_holder, &pt_holder, &amount);
-    f.pool_client.mint_py(&pt_holder, &pt_holder, &amount);
+    f.pool_client
+        .mint_py(&pt_holder, &pt_holder, &amount, &f.maturity);
 
     // Transfer all YT to yt_holder
     f.yt_client.transfer(&pt_holder, &yt_holder, &amount);
@@ -628,29 +644,28 @@ fn test_stress_unclaimed_yt_when_pt_redeems_first_behavior() {
 
     let usdc_out = f.sy_client.redeem(&pt_holder, &pt_holder, &pt_sy_out);
     std::println!("PT holder redeemed {} USDC", usdc_out);
-    // PT holder recovers AT LEAST 100% of initial principal
+    // PT holder recovers 100% of initial principal within integer division dust
     assert!(
-        usdc_out >= amount,
-        "PT holder suffered loss when redeeming first"
+        (usdc_out - amount).abs() <= 25,
+        "PT holder suffered loss when redeeming first: {}",
+        usdc_out
     );
 
     // Check pool SY balance remaining for YT holder
     let pool_sy_remaining = f.sy_client.balance(&f.pool_client.address);
     std::println!("Remaining pool SY for YT holder: {}", pool_sy_remaining);
-
-    // Now YT holder attempts to claim yield
-    let yt_claim_res = f.pool_client.try_claim_yield(&yt_holder, &yt_holder);
-    std::println!(
-        "YT holder claim result after PT took full balance: {:?}",
-        yt_claim_res
+    assert!(
+        pool_sy_remaining > 0,
+        "PT redemption stole unclaimed YT yield!"
     );
 
-    if pool_sy_remaining == 0 {
-        // If PT took all 10,000 SY, pool balance is 0 and YT claim errors with InsufficientBalance
-        assert!(yt_claim_res.is_err());
-    } else {
-        assert!(yt_claim_res.is_ok());
-    }
+    // Now YT holder claims yield — MUST succeed!
+    let yt_claim_res = f.pool_client.try_claim_yield(&yt_holder, &yt_holder);
+    std::println!(
+        "YT holder claim result after PT redeemed first: {:?}",
+        yt_claim_res
+    );
+    assert!(yt_claim_res.is_ok(), "YT claim failed after PT redemption!");
 }
 
 #[test]
@@ -661,7 +676,7 @@ fn test_stress_extreme_100_percent_apr_zero_deficit_and_solvency() {
 
     f.usdc_admin_client.mint(&f.user1, &amount);
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &amount);
+    f.pool_client.mint_py(&f.user1, &f.user1, &amount, &f.maturity);
 
     let mut total_claimed = 0i128;
 
@@ -710,7 +725,7 @@ fn test_stress_proportion_bounds_edge_cases_and_negative_yield_rejection() {
     f.sy_client
         .deposit(&f.lp_provider, &f.lp_provider, &total_mint);
     f.pool_client
-        .mint_py(&f.lp_provider, &f.lp_provider, &pt_init);
+        .mint_py(&f.lp_provider, &f.lp_provider, &pt_init, &f.maturity);
     f.pool_client
         .add_liquidity(&f.lp_provider, &f.lp_provider, &pt_init, &sy_init, &0);
 
@@ -718,15 +733,16 @@ fn test_stress_proportion_bounds_edge_cases_and_negative_yield_rejection() {
     let trader_funds = 10_000_000_000i128;
     f.usdc_admin_client.mint(&trader, &trader_funds);
     f.sy_client.deposit(&trader, &trader, &trader_funds);
-    f.pool_client.mint_py(&trader, &trader, &(trader_funds / 2));
+    f.pool_client
+        .mint_py(&trader, &trader, &(trader_funds / 2), &f.maturity);
 
     // 1. Swap that would cause PT < SY (negative implied rate)
     // Current reserves: PT = 1,500, SY = 1,000.
     // If trader tries to swap 600 SY for PT, new PT would drop below new SY:
     let large_sy_in = 600_000_000i128;
-    let err_neg = f
-        .pool_client
-        .try_swap_exact_sy_for_pt(&trader, &trader, &large_sy_in, &0);
+    let err_neg =
+        f.pool_client
+            .try_swap_exact_sy_for_pt(&trader, &trader, &large_sy_in, &0, &f.maturity);
     assert!(
         err_neg.is_err(),
         "Swapping large SY that inverts PT < SY must be rejected"
@@ -734,9 +750,9 @@ fn test_stress_proportion_bounds_edge_cases_and_negative_yield_rejection() {
 
     // 2. Exact valid swap that preserves PT >= SY and stays in bounds
     let safe_sy_in = 100_000_000i128;
-    let (pt_out, fee_pt) = f
-        .pool_client
-        .swap_exact_sy_for_pt(&trader, &trader, &safe_sy_in, &0);
+    let (pt_out, fee_pt) =
+        f.pool_client
+            .swap_exact_sy_for_pt(&trader, &trader, &safe_sy_in, &0, &f.maturity);
     assert!(pt_out > 0);
     assert!(fee_pt > 0);
 

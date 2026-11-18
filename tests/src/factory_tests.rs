@@ -299,7 +299,8 @@ fn test_end_to_end_lifecycle_mint_trade_mature_rollover() {
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
 
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     let pt_30d_client = PrivilegedTokenClient::new(&f.env, &f.pt_30d);
     assert_eq!(pt_30d_client.balance(&f.user1), user_amount);
@@ -310,7 +311,7 @@ fn test_end_to_end_lifecycle_mint_trade_mature_rollover() {
     f.sy_usdc_client.deposit(&f.admin, &f.admin, &lp_seed);
 
     let pool_90d_client = YieldMarketClient::new(&f.env, &f.pool_90d);
-    pool_90d_client.mint_py(&f.admin, &f.admin, &3_000_000_000);
+    pool_90d_client.mint_py(&f.admin, &f.admin, &3_000_000_000, &dl1);
     pool_90d_client.add_liquidity(&f.admin, &f.admin, &3_000_000_000, &2_000_000_000, &1);
 
     // 3. Advance time past 30D maturity (day 35)
@@ -320,6 +321,7 @@ fn test_end_to_end_lifecycle_mint_trade_mature_rollover() {
     let pt_90d_client = PrivilegedTokenClient::new(&f.env, &f.pt_90d);
     assert_eq!(pt_90d_client.balance(&f.user1), 0);
 
+    let dl2 = f.env.ledger().timestamp() + 3600;
     let (sy_payout, pt_out) = f.factory_client.rollover_to_pt(
         &f.user1,
         &f.user1,
@@ -327,6 +329,7 @@ fn test_end_to_end_lifecycle_mint_trade_mature_rollover() {
         &f.pool_90d,
         &user_amount,
         &1,
+        &dl2,
     );
 
     assert_eq!(sy_payout, user_amount);
@@ -349,7 +352,8 @@ fn test_consecutive_cascading_rollovers() {
     f.sy_usdc_client
         .deposit(&f.user1, &f.user1, &initial_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &initial_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &initial_amount, &dl1);
 
     // 2. Provision liquidity in 90D and 180D pools
     let lp_seed = 12_000_000_000i128;
@@ -357,15 +361,16 @@ fn test_consecutive_cascading_rollovers() {
     f.sy_usdc_client.deposit(&f.admin, &f.admin, &lp_seed);
 
     let pool_90d_client = YieldMarketClient::new(&f.env, &f.pool_90d);
-    pool_90d_client.mint_py(&f.admin, &f.admin, &3_000_000_000);
+    pool_90d_client.mint_py(&f.admin, &f.admin, &3_000_000_000, &dl1);
     pool_90d_client.add_liquidity(&f.admin, &f.admin, &3_000_000_000, &2_000_000_000, &1);
 
     let pool_180d_client = YieldMarketClient::new(&f.env, &f.pool_180d);
-    pool_180d_client.mint_py(&f.admin, &f.admin, &3_000_000_000);
+    pool_180d_client.mint_py(&f.admin, &f.admin, &3_000_000_000, &dl1);
     pool_180d_client.add_liquidity(&f.admin, &f.admin, &3_000_000_000, &2_000_000_000, &1);
 
     // 3. Roll 1: Day 35, 30D matures -> roll into 90D PT
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     let (_sy1, pt_90d_amount) = f.factory_client.rollover_to_pt(
         &f.user1,
@@ -374,6 +379,7 @@ fn test_consecutive_cascading_rollovers() {
         &f.pool_90d,
         &initial_amount,
         &1,
+        &dl2,
     );
     assert!(pt_90d_amount > 0);
 
@@ -387,6 +393,7 @@ fn test_consecutive_cascading_rollovers() {
 
     // 4. Roll 2: Day 95, 90D matures -> roll into 180D PT
     f.env.ledger().set_timestamp(f.maturity_90d + 5 * 86400);
+    let dl3 = f.env.ledger().timestamp() + 3600;
 
     let (_sy2, pt_180d_amount) = f.factory_client.rollover_to_pt(
         &f.user1,
@@ -395,6 +402,7 @@ fn test_consecutive_cascading_rollovers() {
         &f.pool_180d,
         &pt_90d_amount,
         &1,
+        &dl3,
     );
     assert!(pt_180d_amount > 0);
 
@@ -412,16 +420,18 @@ fn test_atomic_rollback_on_target_pool_failure() {
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    let dl1 = f.env.ledger().timestamp() + 3600;
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     let lp_seed = 6_000_000_000i128;
     f.usdc_admin_client.mint(&f.admin, &lp_seed);
     f.sy_usdc_client.deposit(&f.admin, &f.admin, &lp_seed);
     let pool_90d_client = YieldMarketClient::new(&f.env, &f.pool_90d);
-    pool_90d_client.mint_py(&f.admin, &f.admin, &3_000_000_000);
+    pool_90d_client.mint_py(&f.admin, &f.admin, &3_000_000_000, &dl1);
     pool_90d_client.add_liquidity(&f.admin, &f.admin, &3_000_000_000, &2_000_000_000, &1);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // Unrealistic slippage bound triggers SlippageExceeded
     let unreasonable_min = 500_000_000_000i128;
@@ -433,6 +443,7 @@ fn test_atomic_rollback_on_target_pool_failure() {
             &f.pool_90d,
             &user_amount,
             &unreasonable_min,
+            &dl2,
         ),
         Err(Ok(ContractError::SlippageExceeded))
     );
@@ -448,16 +459,18 @@ fn test_atomic_rollback_on_target_pool_failure() {
 fn test_bad_debt_proportional_haircut_rollover() {
     let f = setup_multi_market_fixture();
     let user_amount = 100_000_000i128;
+    let dl1 = f.env.ledger().timestamp() + 3600;
 
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     // Simulate 20% bad debt in 30D pool vault
     f.sy_usdc_client.burn(&f.pool_30d, &20_000_000);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // User rolls over into 90D PY with 80% recovery limit
     let (sy_payout, py_minted) = f.factory_client.rollover_to_py(
@@ -467,6 +480,7 @@ fn test_bad_debt_proportional_haircut_rollover() {
         &f.pool_90d,
         &user_amount,
         &80_000_000,
+        &dl2,
     );
 
     assert_eq!(sy_payout, 80_000_000);
@@ -483,13 +497,15 @@ fn test_bad_debt_proportional_haircut_rollover() {
 fn test_cross_asset_isolation_and_rejection() {
     let f = setup_multi_market_fixture();
     let user_amount = 100_000_000i128;
+    let dl1 = f.env.ledger().timestamp() + 3600;
 
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     // Attempting rollover from USDC pool to XLM pool fails with InvalidAsset
     assert_eq!(
@@ -500,6 +516,7 @@ fn test_cross_asset_isolation_and_rejection() {
             &f.pool_xlm_90d,
             &user_amount,
             &1,
+            &dl2,
         ),
         Err(Ok(ContractError::InvalidAsset))
     );
@@ -509,6 +526,7 @@ fn test_cross_asset_isolation_and_rejection() {
 #[test]
 fn test_factory_governance_emergency_pause_matrix() {
     let f = setup_multi_market_fixture();
+    let dl = f.env.ledger().timestamp() + 3600;
 
     // Guardian pauses factory
     f.factory_client.pause(&f.guardian);
@@ -533,13 +551,13 @@ fn test_factory_governance_emergency_pause_matrix() {
 
     assert_eq!(
         f.factory_client
-            .try_rollover_to_pt(&f.user1, &f.user1, &f.pool_30d, &f.pool_90d, &100, &1,),
+            .try_rollover_to_pt(&f.user1, &f.user1, &f.pool_30d, &f.pool_90d, &100, &1, &dl),
         Err(Ok(ContractError::ContractPaused))
     );
 
     assert_eq!(
         f.factory_client
-            .try_rollover_to_py(&f.user1, &f.user1, &f.pool_30d, &f.pool_90d, &100, &1,),
+            .try_rollover_to_py(&f.user1, &f.user1, &f.pool_30d, &f.pool_90d, &100, &1, &dl),
         Err(Ok(ContractError::ContractPaused))
     );
 
@@ -558,13 +576,15 @@ fn test_factory_governance_emergency_pause_matrix() {
 fn test_rollover_to_py_zero_residual_invariant() {
     let f = setup_multi_market_fixture();
     let user_amount = 100_000_000i128;
+    let dl1 = f.env.ledger().timestamp() + 3600;
 
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_usdc_client.deposit(&f.user1, &f.user1, &user_amount);
     let pool_30d_client = YieldMarketClient::new(&f.env, &f.pool_30d);
-    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount);
+    pool_30d_client.mint_py(&f.user1, &f.user1, &user_amount, &dl1);
 
     f.env.ledger().set_timestamp(f.maturity_30d + 5 * 86400);
+    let dl2 = f.env.ledger().timestamp() + 3600;
 
     let (sy_payout, py_minted) = f.factory_client.rollover_to_py(
         &f.user1,
@@ -573,6 +593,7 @@ fn test_rollover_to_py_zero_residual_invariant() {
         &f.pool_90d,
         &user_amount,
         &user_amount,
+        &dl2,
     );
 
     assert_eq!(sy_payout, user_amount);
@@ -580,4 +601,447 @@ fn test_rollover_to_py_zero_residual_invariant() {
 
     // Factory balance must be strictly zero
     assert_eq!(f.sy_usdc_client.balance(&f.factory_client.address), 0);
+}
+
+mod r1_f1_f2_f5_factory_tests {
+    use common::errors::ContractError;
+    use common::fixed_point::{SCALAR_9, WAD};
+    use common::interfaces::{
+        MarketFactoryClient, MockBlendClient, PrivilegedTokenClient, StandardizedYieldClient,
+        YieldMarketClient, YieldTokenClient,
+    };
+    use market_factory::{MarketFactory, MarketFactoryClient as ConcreteFactoryClient};
+    use mock_blend::MockBlend;
+    use pt_token::PrincipalToken;
+    use soroban_sdk::testutils::{Address as _, Ledger as _, MockAuth, MockAuthInvoke};
+    use soroban_sdk::{
+        contract, contractimpl, symbol_short, token, Address, BytesN, Env, IntoVal, String, Symbol,
+        Val, Vec,
+    };
+    use sy_blend_wrapper::StandardizedYield;
+    use yield_pool::{YieldPool, YieldPoolClient};
+    use yt_token::YieldToken;
+
+    const KEY_SYM: Symbol = symbol_short!("SYM");
+    const KEY_DEC: Symbol = symbol_short!("DEC");
+
+    #[contract]
+    pub struct MockMetaAsset;
+
+    #[contractimpl]
+    impl MockMetaAsset {
+        pub fn init(env: Env, sym: String, dec: u32) {
+            env.storage().instance().set(&KEY_SYM, &sym);
+            env.storage().instance().set(&KEY_DEC, &dec);
+        }
+
+        pub fn symbol(env: Env) -> String {
+            env.storage()
+                .instance()
+                .get(&KEY_SYM)
+                .unwrap_or_else(|| String::from_str(&env, "ASSET"))
+        }
+
+        pub fn decimals(env: Env) -> u32 {
+            env.storage().instance().get(&KEY_DEC).unwrap_or(7)
+        }
+
+        pub fn name(env: Env) -> String {
+            Self::symbol(env)
+        }
+    }
+
+    #[test]
+    fn test_f1_creator_whitelist_auth_and_pre_mutation_validation() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().set_timestamp(10_000);
+
+        let admin = Address::generate(&env);
+        let guardian = Address::generate(&env);
+        let creator = Address::generate(&env);
+        let stranger = Address::generate(&env);
+
+        let factory_id = env.register(MarketFactory, ());
+        let factory = MarketFactoryClient::new(&env, &factory_id);
+        factory.initialize(
+            &admin,
+            &guardian,
+            &BytesN::from_array(&env, &[1u8; 32]),
+            &BytesN::from_array(&env, &[2u8; 32]),
+            &BytesN::from_array(&env, &[3u8; 32]),
+            &BytesN::from_array(&env, &[4u8; 32]),
+        );
+
+        let asset = Address::generate(&env);
+        let blend_pool = Address::generate(&env);
+        let mat = 10_000 + 30 * 86400;
+
+        // 1. Non-admin cannot modify whitelist
+        assert_eq!(
+            factory.try_set_creator_whitelist(&stranger, &creator, &true),
+            Err(Ok(ContractError::Unauthorized))
+        );
+        assert!(!factory.is_whitelisted_creator(&creator));
+
+        // 2. Unauthorized caller cannot call create_market & no state is mutated
+        assert_eq!(
+            factory.try_create_market(&stranger, &asset, &blend_pool, &mat, &(20 * WAD), &WAD),
+            Err(Ok(ContractError::Unauthorized))
+        );
+        assert_eq!(factory.market_count(), 0);
+        assert_eq!(factory.get_sy_for_asset(&asset), None);
+
+        // 3. Admin grants & revokes whitelist
+        factory.set_creator_whitelist(&admin, &creator, &true);
+        assert!(factory.is_whitelisted_creator(&creator));
+
+        // 4. Pre-mutation validations for whitelisted creator
+        assert_eq!(
+            factory.try_create_market(&creator, &asset, &asset, &mat, &(20 * WAD), &WAD),
+            Err(Ok(ContractError::IdenticalAddresses))
+        );
+        assert_eq!(
+            factory.try_create_market(&creator, &asset, &blend_pool, &10_000, &(20 * WAD), &WAD),
+            Err(Ok(ContractError::InvalidMaturity))
+        );
+        assert!(factory
+            .try_create_market(&creator, &asset, &blend_pool, &mat, &0, &WAD)
+            .is_err());
+        assert!(factory
+            .try_create_market(&creator, &asset, &blend_pool, &mat, &(20 * WAD), &0)
+            .is_err());
+        assert_eq!(factory.market_count(), 0);
+        assert_eq!(factory.get_sy_for_asset(&asset), None);
+
+        // Revoking removes access
+        factory.set_creator_whitelist(&admin, &creator, &false);
+        assert!(!factory.is_whitelisted_creator(&creator));
+        assert_eq!(
+            factory.try_create_market(&creator, &asset, &blend_pool, &mat, &(20 * WAD), &WAD),
+            Err(Ok(ContractError::Unauthorized))
+        );
+    }
+
+    #[test]
+    fn test_f1_f2_real_wasm_create_market_scoped_auth_and_dynamic_metadata() {
+        let env = Env::default();
+        env.ledger().set_timestamp(1_700_000_000);
+
+        let pt_bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../target/wasm32v1-none/release/pt_token.wasm"
+        ))
+        .expect("pt_token.wasm missing — run stellar contract build --profile release first");
+        let yt_bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../target/wasm32v1-none/release/yt_token.wasm"
+        ))
+        .expect("yt_token.wasm missing");
+        let pool_bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../target/wasm32v1-none/release/yield_pool.wasm"
+        ))
+        .expect("yield_pool.wasm missing");
+        let sy_bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../target/wasm32v1-none/release/sy_blend_wrapper.wasm"
+        ))
+        .expect("sy_blend_wrapper.wasm missing");
+
+        let pt_hash = env.deployer().upload_contract_wasm(pt_bytes.as_slice());
+        let yt_hash = env.deployer().upload_contract_wasm(yt_bytes.as_slice());
+        let pool_hash = env.deployer().upload_contract_wasm(pool_bytes.as_slice());
+        let sy_hash = env.deployer().upload_contract_wasm(sy_bytes.as_slice());
+
+        let admin = Address::generate(&env);
+        let guardian = Address::generate(&env);
+        let creator = Address::generate(&env);
+
+        let factory_id = env.register(MarketFactory, ());
+        let factory = ConcreteFactoryClient::new(&env, &factory_id);
+
+        env.mock_all_auths();
+        factory.initialize(&admin, &guardian, &pt_hash, &yt_hash, &pool_hash, &sy_hash);
+        factory.set_creator_whitelist(&admin, &creator, &true);
+
+        // Underlying #1: USDC (7 decimals)
+        let usdc_id = env.register(MockMetaAsset, ());
+        MockMetaAssetClient::new(&env, &usdc_id).init(&String::from_str(&env, "USDC"), &7);
+        let blend_usdc = env.register(MockBlend, ());
+        MockBlendClient::new(&env, &blend_usdc).initialize(&admin, &usdc_id, &SCALAR_9);
+
+        // Underlying #2: native XLM (7 decimals)
+        let xlm_id = env.register(MockMetaAsset, ());
+        MockMetaAssetClient::new(&env, &xlm_id).init(&String::from_str(&env, "native"), &7);
+        let blend_xlm = env.register(MockBlend, ());
+        MockBlendClient::new(&env, &blend_xlm).initialize(&admin, &xlm_id, &SCALAR_9);
+
+        let now = env.ledger().timestamp();
+        let mat_30d = now + 30 * 86400;
+        let mat_60d = now + 60 * 86400;
+
+        // Clear mock_all_auths and supply SCOPED auth ONLY for non-admin creator on factory::create_market!
+        let args_usdc: Vec<Val> = (
+            creator.clone(),
+            usdc_id.clone(),
+            blend_usdc.clone(),
+            mat_30d,
+            20 * WAD,
+            WAD,
+        )
+            .into_val(&env);
+        env.mock_auths(&[MockAuth {
+            address: &creator,
+            invoke: &MockAuthInvoke {
+                contract: &factory_id,
+                fn_name: "create_market",
+                args: args_usdc,
+                sub_invokes: &[],
+            },
+        }]);
+
+        let m_usdc = factory.create_market(
+            &creator,
+            &usdc_id,
+            &blend_usdc,
+            &mat_30d,
+            &(20 * WAD),
+            &WAD,
+        );
+        let sy_usdc_id = factory.get_sy_for_asset(&usdc_id).unwrap();
+
+        // Check F1: all deployed sub-contracts belong to factory's `admin` (NOT `creator`)
+        let sy_usdc = StandardizedYieldClient::new(&env, &sy_usdc_id);
+        let pt_usdc = PrivilegedTokenClient::new(&env, &m_usdc.pt);
+        let yt_usdc = YieldTokenClient::new(&env, &m_usdc.yt);
+        let pool_usdc = YieldMarketClient::new(&env, &m_usdc.pool);
+        let pool_usdc_lp = YieldPoolClient::new(&env, &m_usdc.pool);
+
+        assert_eq!(sy_usdc.get_admin(), admin);
+        assert_eq!(pt_usdc.get_admin(), admin);
+        assert_eq!(yt_usdc.get_admin(), admin);
+        assert_eq!(pool_usdc.get_admin(), admin);
+        assert_eq!(pool_usdc.get_market_state().fee_recipient, admin);
+
+        // Check F2 dynamic metadata for USDC 30D
+        assert_eq!(
+            sy_usdc.name(),
+            String::from_str(&env, "Standardized Yield Blend USDC")
+        );
+        assert_eq!(sy_usdc.symbol(), String::from_str(&env, "sy-bUSDC"));
+        assert_eq!(sy_usdc.decimals(), 7);
+
+        assert_eq!(pt_usdc.name(), String::from_str(&env, "PT USDC 30D"));
+        assert_eq!(pt_usdc.symbol(), String::from_str(&env, "PT-USDC-30D"));
+        assert_eq!(pt_usdc.decimals(), 7);
+
+        assert_eq!(yt_usdc.name(), String::from_str(&env, "YT USDC 30D"));
+        assert_eq!(yt_usdc.symbol(), String::from_str(&env, "YT-USDC-30D"));
+        assert_eq!(yt_usdc.decimals(), 7);
+
+        assert_eq!(
+            pool_usdc_lp.name(),
+            String::from_str(&env, "NivoraFi LP USDC")
+        );
+        assert_eq!(pool_usdc_lp.symbol(), String::from_str(&env, "LP-USDC"));
+        assert_eq!(pool_usdc_lp.decimals(), 7);
+
+        // Deploy 2nd market ("native" -> XLM, 60D) with creator scoped auth
+        let args_xlm: Vec<Val> = (
+            creator.clone(),
+            xlm_id.clone(),
+            blend_xlm.clone(),
+            mat_60d,
+            20 * WAD,
+            WAD,
+        )
+            .into_val(&env);
+        env.mock_auths(&[MockAuth {
+            address: &creator,
+            invoke: &MockAuthInvoke {
+                contract: &factory_id,
+                fn_name: "create_market",
+                args: args_xlm,
+                sub_invokes: &[],
+            },
+        }]);
+        let m_xlm = factory.create_market(
+            &creator,
+            &xlm_id,
+            &blend_xlm,
+            &mat_60d,
+            &(20 * WAD),
+            &WAD,
+        );
+        let sy_xlm_id = factory.get_sy_for_asset(&xlm_id).unwrap();
+
+        let sy_xlm = StandardizedYieldClient::new(&env, &sy_xlm_id);
+        let pt_xlm = PrivilegedTokenClient::new(&env, &m_xlm.pt);
+        let yt_xlm = YieldTokenClient::new(&env, &m_xlm.yt);
+        let pool_xlm_lp = YieldPoolClient::new(&env, &m_xlm.pool);
+
+        assert_eq!(
+            sy_xlm.name(),
+            String::from_str(&env, "Standardized Yield Blend XLM")
+        );
+        assert_eq!(sy_xlm.symbol(), String::from_str(&env, "sy-bXLM"));
+        assert_eq!(pt_xlm.name(), String::from_str(&env, "PT XLM 60D"));
+        assert_eq!(pt_xlm.symbol(), String::from_str(&env, "PT-XLM-60D"));
+        assert_eq!(yt_xlm.name(), String::from_str(&env, "YT XLM 60D"));
+        assert_eq!(yt_xlm.symbol(), String::from_str(&env, "YT-XLM-60D"));
+        assert_eq!(pool_xlm_lp.name(), String::from_str(&env, "NivoraFi LP XLM"));
+        assert_eq!(pool_xlm_lp.symbol(), String::from_str(&env, "LP-XLM"));
+    }
+
+    #[test]
+    fn test_f5_rollover_deadlines_and_boundary() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().set_timestamp(10_000);
+
+        let admin = Address::generate(&env);
+        let guardian = Address::generate(&env);
+        let lp_user = Address::generate(&env);
+        let user = Address::generate(&env);
+
+        let token_admin = Address::generate(&env);
+        let usdc = env.register_stellar_asset_contract_v2(token_admin);
+        let usdc_admin = token::StellarAssetClient::new(&env, &usdc.address());
+
+        let blend_id = env.register(MockBlend, ());
+        MockBlendClient::new(&env, &blend_id).initialize(&admin, &usdc.address(), &SCALAR_9);
+
+        let sy_id = env.register(StandardizedYield, ());
+        let sy_client = StandardizedYieldClient::new(&env, &sy_id);
+        sy_client.initialize(&admin, &usdc.address(), &blend_id);
+
+        let mat_30d = 10_000 + 30 * 86400;
+        let mat_90d = 10_000 + 90 * 86400;
+
+        let setup_pool = |mat: u64| -> (Address, Address, Address) {
+            let pool = env.register(YieldPool, ());
+            let pt = env.register(PrincipalToken, ());
+            let yt = env.register(YieldToken, ());
+            PrivilegedTokenClient::new(&env, &pt).initialize(
+                &admin,
+                &pool,
+                &String::from_str(&env, "PT"),
+                &String::from_str(&env, "PT"),
+                &7,
+                &mat,
+            );
+            YieldTokenClient::new(&env, &yt).initialize(
+                &admin,
+                &pool,
+                &sy_id,
+                &String::from_str(&env, "YT"),
+                &String::from_str(&env, "YT"),
+                &7,
+                &mat,
+            );
+            YieldMarketClient::new(&env, &pool).initialize(
+                &admin,
+                &sy_id,
+                &pt,
+                &yt,
+                &mat,
+                &(20 * WAD),
+                &WAD,
+            );
+            (pool, pt, yt)
+        };
+
+        let (pool_30d, pt_30d, yt_30d) = setup_pool(mat_30d);
+        let (pool_90d, pt_90d, yt_90d) = setup_pool(mat_90d);
+
+        let factory_id = env.register(MarketFactory, ());
+        let factory = MarketFactoryClient::new(&env, &factory_id);
+        factory.initialize(
+            &admin,
+            &guardian,
+            &BytesN::from_array(&env, &[1u8; 32]),
+            &BytesN::from_array(&env, &[2u8; 32]),
+            &BytesN::from_array(&env, &[3u8; 32]),
+            &BytesN::from_array(&env, &[4u8; 32]),
+        );
+        factory.register_market(
+            &admin,
+            &pool_30d,
+            &sy_id,
+            &pt_30d,
+            &yt_30d,
+            &usdc.address(),
+            &mat_30d,
+            &(20 * WAD),
+            &WAD,
+        );
+        factory.register_market(
+            &admin,
+            &pool_90d,
+            &sy_id,
+            &pt_90d,
+            &yt_90d,
+            &usdc.address(),
+            &mat_90d,
+            &(20 * WAD),
+            &WAD,
+        );
+
+        let pool_30_c = YieldMarketClient::new(&env, &pool_30d);
+        let pool_90_c = YieldMarketClient::new(&env, &pool_90d);
+        let pt_30_c = PrivilegedTokenClient::new(&env, &pt_30d);
+        let pt_90_c = PrivilegedTokenClient::new(&env, &pt_90d);
+        let yt_90_c = YieldTokenClient::new(&env, &yt_90d);
+
+        // Seed 90d LP liquidity with PT > SY (300B PT, 150B SY) so rollover_to_pt swap keeps PT >= SY
+        usdc_admin.mint(&lp_user, &450_000_000_000);
+        sy_client.deposit(&lp_user, &lp_user, &450_000_000_000);
+        pool_90_c.mint_py(&lp_user, &lp_user, &300_000_000_000, &mat_90d);
+        pool_90_c.add_liquidity(
+            &lp_user,
+            &lp_user,
+            &300_000_000_000,
+            &150_000_000_000,
+            &1,
+        );
+
+        // User holds PT in 30d pool
+        let user_amt = 20_000_000_000i128;
+        usdc_admin.mint(&user, &user_amt);
+        sy_client.deposit(&user, &user, &user_amt);
+        pool_30_c.mint_py(&user, &user, &user_amt, &mat_30d);
+
+        // Advance past 30d maturity
+        env.ledger().set_timestamp(mat_30d + 10);
+        let now = env.ledger().timestamp();
+        let expired_dl = now - 1;
+        let half = user_amt / 2;
+
+        // Expired deadlines must fail with DeadlineExpired and zero PT burned
+        assert_eq!(
+            factory.try_rollover_to_pt(&user, &user, &pool_30d, &pool_90d, &half, &1, &expired_dl),
+            Err(Ok(ContractError::DeadlineExpired))
+        );
+        assert_eq!(
+            factory.try_rollover_to_py(&user, &user, &pool_30d, &pool_90d, &half, &1, &expired_dl),
+            Err(Ok(ContractError::DeadlineExpired))
+        );
+        assert_eq!(pt_30_c.balance(&user), user_amt);
+
+        // Exact boundary timestamp == deadline succeeds for both rollover_to_pt and rollover_to_py
+        let (sy_redeemed_pt, out_pt) =
+            factory.rollover_to_pt(&user, &user, &pool_30d, &pool_90d, &half, &1, &now);
+        assert_eq!(sy_redeemed_pt, half);
+        assert!(out_pt > 0);
+        assert_eq!(pt_90_c.balance(&user), out_pt);
+
+        let (sy_redeemed_py, py_minted) =
+            factory.rollover_to_py(&user, &user, &pool_30d, &pool_90d, &half, &1, &now);
+        assert_eq!(sy_redeemed_py, half);
+        assert!(py_minted > 0);
+        assert_eq!(yt_90_c.balance(&user), py_minted);
+        assert_eq!(pt_90_c.balance(&user), out_pt + py_minted);
+        assert_eq!(pt_30_c.balance(&user), 0);
+    }
 }

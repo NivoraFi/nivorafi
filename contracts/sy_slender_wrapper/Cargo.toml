@@ -1,0 +1,16 @@
+[package]
+name = "sy_slender_wrapper"
+version = "0.1.0"
+edition = "2021"
+description = "Standardized Yield token vault wrapping Slender Protocol for Stellar Pendle"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+common = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+mock_slender = { workspace = true }

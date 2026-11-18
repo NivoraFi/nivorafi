@@ -61,6 +61,7 @@ export function TradePageClient({
     activeSnapshot: snapshot,
     activePortfolio: portfolio,
     loadingSnapshot: loadingMarket,
+    snapshotError,
     selectMarket,
     refreshActiveMarket,
   } = useMarket();
@@ -133,6 +134,7 @@ export function TradePageClient({
     chartPoints: indexerChartPoints,
     isChartLoading,
     hasLoadedChart,
+    chartError,
     selectedInterval: chartInterval,
     setInterval: setChartInterval,
     refreshCharts,
@@ -150,8 +152,12 @@ export function TradePageClient({
     !hasMounted || !hasLoadedChart || !hasRealSnapshot;
 
   const normalizedChartData = useMemo<ChartDataPoint[] | undefined>(() => {
-    if (isInitialChartHydrating || indexerChartPoints.length < 2) {
+    if (isInitialChartHydrating) {
       return undefined;
+    }
+
+    if (indexerChartPoints.length === 0) {
+      return [];
     }
 
     const maturitySec = snapshot?.state?.maturity
@@ -160,23 +166,18 @@ export function TradePageClient({
     const isMaturedMarket =
       (snapshot?.isMatured ?? false) ||
       Math.floor(Date.now() / 1000) >= maturitySec;
-    const liveImplied =
-      snapshot?.impliedFixedApyPct ??
-      (isMaturedMarket
-        ? 0
-        : resolvedMarket.tenor === "30D"
-        ? 6.2
-        : resolvedMarket.tenor === "90D"
-        ? 8.45
-        : 10.15);
-    const livePt = snapshot?.ptPriceInSy ?? (isMaturedMarket ? 1.0 : 0.98);
-    const liveYt = snapshot?.ytPriceInSy ?? Math.max(0, 1.0 - livePt);
+    const liveImplied = snapshot?.impliedFixedApyPct;
+    const livePt = snapshot?.ptPriceInSy;
 
-    // 1. Repair add_liquidity reserve-ratio outliers (e.g. syAmt/ptAmt = 0.34 to 500% APY)
-    const cleaned = indexerChartPoints.map((pt) => {
-      const isLiquidityRatioOutlier =
+    // Repair add_liquidity reserve-ratio outliers only when live snapshot anchor is available
+    return indexerChartPoints.map((pt) => {
+      const canRepairWithSnapshot =
+        typeof livePt === "number" &&
+        typeof liveImplied === "number" &&
         livePt > 0.8 &&
-        liveImplied < 100 &&
+        liveImplied < 100;
+      const isLiquidityRatioOutlier =
+        canRepairWithSnapshot &&
         (pt.ptPrice < 0.65 || pt.impliedApy >= 450);
 
       if (!isLiquidityRatioOutlier) {
@@ -196,82 +197,11 @@ export function TradePageClient({
         ytPrice: Number(Math.max(0, 1.0 - repairedPt).toFixed(4)),
       };
     });
-
-    // 2. Measure real APY & underlying variance across the window
-    let minImp = Infinity;
-    let maxImp = -Infinity;
-    let minUnd = Infinity;
-    let maxUnd = -Infinity;
-    for (const p of cleaned) {
-      minImp = Math.min(minImp, p.impliedApy);
-      maxImp = Math.max(maxImp, p.impliedApy);
-      minUnd = Math.min(minUnd, p.underlyingApy);
-      maxUnd = Math.max(maxUnd, p.underlyingApy);
-    }
-
-    const lowImpVariance = maxImp - minImp < 0.25;
-    const lowUndVariance = maxUnd - minUnd < 0.05;
-    const ampScale =
-      chartInterval === "1D"
-        ? 0.36
-        : chartInterval === "1W"
-        ? 0.62
-        : chartInterval === "1M"
-        ? 0.9
-        : 1.2;
-
-    return cleaned.map((pt, idx) => {
-      const isLast = idx === cleaned.length - 1;
-      const progress = idx / (cleaned.length - 1);
-      const envelope = 1 - progress;
-
-      const impWave =
-        !isLast && !isMaturedMarket && lowImpVariance
-          ? (Math.sin(progress * Math.PI * 3.2 + 0.6) * 0.62 +
-              Math.cos(progress * Math.PI * 1.7) * 0.38) *
-            ampScale *
-            envelope
-          : 0;
-      const undWave =
-        !isLast && !isMaturedMarket && lowUndVariance
-          ? (Math.sin(progress * Math.PI * 2.4 + 1.5) * 0.55 +
-              Math.cos(progress * Math.PI * 1.3 + 0.4) * 0.45) *
-            (ampScale * 0.42) *
-            envelope
-          : 0;
-
-      const baseImplied = isLast ? liveImplied : pt.impliedApy + impWave;
-      const impliedApy = Number(Math.max(0, baseImplied).toFixed(2));
-      const underlyingApy = Number(
-        Math.max(0, pt.underlyingApy + undWave).toFixed(2)
-      );
-
-      const tau = Math.max(0, (maturitySec - pt.timestamp) / 31536000);
-      const computedPt = isLast
-        ? Number(livePt.toFixed(4))
-        : tau > 0 && !isMaturedMarket
-        ? Number((1 / Math.pow(1 + impliedApy / 100, tau)).toFixed(4))
-        : 1.0;
-      const computedYt = isLast
-        ? Number(liveYt.toFixed(4))
-        : Number(Math.max(0, 1.0 - computedPt).toFixed(4));
-
-      return {
-        timestamp: pt.timestamp,
-        impliedApy,
-        underlyingApy,
-        ptPrice: computedPt,
-        ytPrice: computedYt,
-        ledger: pt.ledger,
-      };
-    });
   }, [
     isInitialChartHydrating,
-    hasMounted,
     indexerChartPoints,
     snapshot,
     resolvedMarket,
-    chartInterval,
   ]);
 
   const handleSwitchView = useCallback(
@@ -496,6 +426,7 @@ export function TradePageClient({
                   analytics={null}
                   snapshot={hasRealSnapshot ? snapshot : null}
                   loading={isInitialChartHydrating}
+                  error={chartError ?? snapshotError}
                   onTimeframeChange={(tf: ChartTimeframe) =>
                     setChartInterval(tf)
                   }

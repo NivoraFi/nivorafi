@@ -139,6 +139,24 @@ export function wadDiv(a: bigint, b: bigint): bigint {
   return res;
 }
 
+export function wadDivCeil(a: bigint, b: bigint): bigint {
+  if (b === 0n) throw new Error("Division by zero");
+  if (a === 0n) return 0n;
+  const sign = (a < 0n) !== (b < 0n);
+  const ua = a < 0n ? -a : a;
+  const ub = b < 0n ? -b : b;
+  const num = ua * WAD;
+  const q = num / ub;
+  const rem = num % ub;
+  if (sign) {
+    if (q > I128_MAX) throw new Error("Fixed-point overflow");
+    return q === 0n ? 0n : -q;
+  }
+  const res = rem > 0n ? q + 1n : q;
+  if (res > I128_MAX) throw new Error("Fixed-point overflow");
+  return res;
+}
+
 export function lnWad(x: bigint): bigint {
   if (x <= 0n) throw new Error("Negative logarithm input");
   if (x === WAD) return 0n;
@@ -337,18 +355,53 @@ export function shortenAddress(addr: string, head = 6, tail = 5): string {
   return `${addr.slice(0, head)}...${addr.slice(-tail)}`;
 }
 
+export function syToAsset(pyIndex: bigint, syAmount: bigint): bigint {
+  if (pyIndex <= 0n) throw new Error("Invalid PyIndex rate");
+  if (syAmount === 0n) return 0n;
+  return (syAmount * pyIndex) / SCALAR_9;
+}
+
+export function assetToSy(pyIndex: bigint, assetAmount: bigint): bigint {
+  if (pyIndex <= 0n) throw new Error("Invalid PyIndex rate");
+  if (assetAmount === 0n) return 0n;
+  return (assetAmount * SCALAR_9) / pyIndex;
+}
+
+export function assetToSyCeil(pyIndex: bigint, assetAmount: bigint): bigint {
+  if (pyIndex <= 0n) throw new Error("Invalid PyIndex rate");
+  if (assetAmount === 0n) return 0n;
+  return (assetAmount * SCALAR_9 + (pyIndex - 1n)) / pyIndex;
+}
+
+export interface BadDebtClampContext {
+  availableForPtSy: bigint;
+  ptTotalSupply: bigint;
+}
+
+function calculateProRataShare(amount: bigint, available: bigint, totalSupply: bigint): bigint {
+  if (totalSupply <= 0n) throw new Error("Division by zero");
+  if (available <= 0n || amount <= 0n) return 0n;
+  if (amount >= totalSupply) return available;
+  return (amount * available) / totalSupply;
+}
+
 export function quoteSwapLocal(
   state: MarketStateRaw,
   direction: SwapDirection,
   amountIn: bigint,
   nowSeconds: bigint,
-  slippageBps = 50
+  slippageBps = 50,
+  pyIndex: bigint = SCALAR_9,
+  badDebtContext?: BadDebtClampContext
 ): SwapQuote {
   const tauWad = calculateTauWad(nowSeconds, state.maturity);
   if (tauWad <= 0n) throw new Error("Market already matured");
+  if (pyIndex < 0n) throw new Error("Invalid PyIndex rate");
+  const safePyIndex = pyIndex === 0n ? SCALAR_9 : pyIndex;
   const feeRate = calculateFeeRate(tauWad, state.annual_fee_rate);
   const ptRes = state.total_pt_reserve;
   const syRes = state.total_sy_reserve;
+  const assetRes = syToAsset(safePyIndex, syRes);
 
   let estimatedOut = 0n;
   let feeAmount = 0n;
@@ -358,59 +411,148 @@ export function quoteSwapLocal(
 
   if (direction === "pt_for_sy") {
     newPt = ptRes + amountIn;
-    tradeRateWad = getExchangeRateWad(newPt, syRes, tauWad, state.scalar_root, state.initial_anchor);
-    const grossSy = wadDiv(amountIn, tradeRateWad);
-    feeAmount = wadMul(grossSy, feeRate);
-    estimatedOut = grossSy - feeAmount;
+    tradeRateWad = getExchangeRateWad(newPt, assetRes, tauWad, state.scalar_root, state.initial_anchor);
+    const grossAsset = wadDiv(amountIn, tradeRateWad);
+    const feeAsset = wadMul(grossAsset, feeRate);
+    const netAssetOut = grossAsset - feeAsset;
+    estimatedOut = assetToSy(safePyIndex, netAssetOut);
+    if (estimatedOut <= 0n) throw new Error("Output amount too small after PyIndex scaling");
+    feeAmount = assetToSy(safePyIndex, feeAsset);
     if (estimatedOut >= syRes) throw new Error("Exceeds SY pool reserve");
     const protoFee = (feeAmount * state.protocol_fee_bps) / 10_000n;
     newSy = syRes - estimatedOut - protoFee;
-    checkMarketProportion(newPt, newSy);
+    const finalAssetRes = syToAsset(safePyIndex, newSy);
+    checkMarketProportion(newPt, finalAssetRes);
+    if (newPt < assetRes - netAssetOut || newPt < finalAssetRes) {
+      throw new Error("Negative implied yield not supported");
+    }
   } else if (direction === "sy_for_pt") {
-    newSy = syRes + amountIn;
-    tradeRateWad = getExchangeRateWad(ptRes, newSy, tauWad, state.scalar_root, state.initial_anchor);
-    const grossPt = wadMul(amountIn, tradeRateWad);
+    const assetIn = syToAsset(safePyIndex, amountIn);
+    if (assetIn <= 0n) throw new Error("Amount too small after PyIndex scaling");
+    const newAssetRes = assetRes + assetIn;
+    tradeRateWad = getExchangeRateWad(ptRes, newAssetRes, tauWad, state.scalar_root, state.initial_anchor);
+    const grossPt = wadMul(assetIn, tradeRateWad);
     feeAmount = wadMul(grossPt, feeRate);
     estimatedOut = grossPt - feeAmount;
+    if (estimatedOut <= 0n) throw new Error("Output amount too small after PyIndex scaling");
     if (estimatedOut >= ptRes) throw new Error("Exceeds PT pool reserve");
-    newPt = ptRes - estimatedOut;
-    checkMarketProportion(newPt, newSy);
+    const protoFee = (feeAmount * state.protocol_fee_bps) / 10_000n;
+    newPt = ptRes - estimatedOut - protoFee;
+    newSy = syRes + amountIn;
+    const finalAssetRes = syToAsset(safePyIndex, newSy);
+    checkMarketProportion(newPt, finalAssetRes);
+    if (newPt < finalAssetRes) {
+      throw new Error("Negative implied yield not supported");
+    }
   } else if (direction === "sy_for_yt") {
-    const e0 = getExchangeRateWad(ptRes, syRes, tauWad, state.scalar_root, state.initial_anchor);
+    const assetIn = syToAsset(safePyIndex, amountIn);
+    if (assetIn <= 0n) throw new Error("Amount too small after PyIndex scaling");
+    const e0 = getExchangeRateWad(ptRes, assetRes, tauWad, state.scalar_root, state.initial_anchor);
     if (e0 <= WAD) throw new Error("Implied yield too low for YT flash buy");
     const unitYield0 = WAD - wadDiv(WAD, e0);
     const unitCost0 = unitYield0 + wadMul(unitYield0, feeRate);
     if (unitCost0 <= 0n) throw new Error("Zero YT unit cost");
-    let n = wadDiv(amountIn, unitCost0);
-    const e1 = getExchangeRateWad(ptRes + n, syRes, tauWad, state.scalar_root, state.initial_anchor);
-    const unitYield1 = WAD - wadDiv(WAD, e1);
-    const unitCost1 = unitYield1 + wadMul(unitYield1, feeRate);
-    if (unitCost1 > 0n) {
-      n = wadDiv(amountIn, unitCost1);
+
+    const n0 = wadDiv(assetIn, unitCost0);
+    const maxNSy = syToAsset(safePyIndex, syRes + amountIn);
+    let hi = n0 < maxNSy ? n0 : maxNSy;
+    let lo = 0n;
+    let bestE = e0;
+
+    for (let i = 0; i < 48; i++) {
+      if (lo >= hi) break;
+      const mid = lo + (hi - lo + 1n) / 2n;
+      const grossEst = wadDiv(mid, e0);
+      if (grossEst >= assetRes) {
+        hi = mid - 1n;
+        continue;
+      }
+      try {
+        const eMid = getExchangeRateWad(
+          ptRes + mid,
+          assetRes - grossEst,
+          tauWad,
+          state.scalar_root,
+          state.initial_anchor
+        );
+        const unitYield = WAD - wadDiv(WAD, eMid);
+        const unitCost = unitYield + wadMul(unitYield, feeRate);
+        const cost = wadMul(mid, unitCost);
+        if (cost <= assetIn) {
+          lo = mid;
+          bestE = eMid;
+        } else {
+          hi = mid - 1n;
+        }
+      } catch {
+        hi = mid - 1n;
+      }
     }
-    tradeRateWad = e1;
-    const grossSySold = wadDiv(n, e1);
-    const yieldCost = n - grossSySold;
-    feeAmount = wadMul(yieldCost, feeRate);
+
+    const n = lo;
+    if (n <= 0n) throw new Error("Exceeds SY pool liquidity");
+    tradeRateWad = bestE;
+    const grossAssetSold = wadDiv(n, bestE);
+    const yieldCost = n - grossAssetSold;
+    const feeAsset = wadMul(yieldCost, feeRate);
+    feeAmount = assetToSy(safePyIndex, feeAsset);
+    const protoFeeSy = (feeAmount * state.protocol_fee_bps) / 10_000n;
+    const pyBackingSy = assetToSyCeil(safePyIndex, n);
     estimatedOut = n;
     newPt = ptRes + n;
-    newSy = syRes - grossSySold;
+    newSy = syRes + amountIn - protoFeeSy - pyBackingSy;
     if (newSy <= 0n) throw new Error("Exceeds SY pool liquidity");
-    checkMarketProportion(newPt, newSy);
+    const finalAssetRes = syToAsset(safePyIndex, newSy);
+    checkMarketProportion(newPt, finalAssetRes);
+    if (newPt < finalAssetRes) {
+      throw new Error("Negative implied yield not supported");
+    }
   } else {
     if (ptRes < amountIn) throw new Error("Exceeds PT pool reserve for flash unwind");
     newPt = ptRes - amountIn;
-    tradeRateWad = getExchangeRateWad(newPt, syRes, tauWad, state.scalar_root, state.initial_anchor);
-    const grossSyBuy = wadDiv(amountIn, tradeRateWad);
-    if (amountIn <= grossSyBuy) throw new Error("Negative implied yield on YT sell");
-    const grossYield = amountIn - grossSyBuy;
-    feeAmount = wadMul(grossYield, feeRate);
-    estimatedOut = grossYield - feeAmount;
-    newSy = syRes + grossSyBuy;
-    checkMarketProportion(newPt, newSy);
+    const e0 = getExchangeRateWad(newPt, assetRes, tauWad, state.scalar_root, state.initial_anchor);
+    const estAsset1 = assetRes + wadDiv(amountIn, e0);
+    const e1 = getExchangeRateWad(newPt, estAsset1, tauWad, state.scalar_root, state.initial_anchor);
+    const estAsset2 = assetRes + wadDiv(amountIn, e1);
+    tradeRateWad = getExchangeRateWad(newPt, estAsset2, tauWad, state.scalar_root, state.initial_anchor);
+    const grossAssetBuy = wadDivCeil(amountIn, tradeRateWad);
+    if (amountIn <= grossAssetBuy) throw new Error("Negative implied yield on YT sell");
+    const grossYield = amountIn - grossAssetBuy;
+    const feeAsset = wadMul(grossYield, feeRate);
+    const netAssetOut = grossYield - feeAsset;
+    estimatedOut = assetToSy(safePyIndex, netAssetOut);
+    if (estimatedOut <= 0n) throw new Error("Output amount too small after PyIndex scaling");
+    feeAmount = assetToSy(safePyIndex, feeAsset);
+    const protoFeeSy = (feeAmount * state.protocol_fee_bps) / 10_000n;
+    const fullFreedSy = assetToSy(safePyIndex, amountIn);
+    const freedPtSy = badDebtContext
+      ? (() => {
+          const proRata = calculateProRataShare(
+            amountIn,
+            badDebtContext.availableForPtSy,
+            badDebtContext.ptTotalSupply
+          );
+          return fullFreedSy < proRata ? fullFreedSy : proRata;
+        })()
+      : fullFreedSy;
+    if (freedPtSy < estimatedOut + protoFeeSy) {
+      throw new Error("Insufficient PT backing for YT unwind");
+    }
+    newSy = syRes + freedPtSy - estimatedOut - protoFeeSy;
+    const finalAssetRes = syToAsset(safePyIndex, newSy);
+    checkMarketProportion(newPt, finalAssetRes);
+    if (newPt < finalAssetRes) {
+      throw new Error("Negative implied yield not supported");
+    }
   }
 
-  const rateAfter = getExchangeRateWad(newPt, newSy, tauWad, state.scalar_root, state.initial_anchor);
+  const rateAfter = getExchangeRateWad(
+    newPt,
+    syToAsset(safePyIndex, newSy),
+    tauWad,
+    state.scalar_root,
+    state.initial_anchor
+  );
 
   return {
     direction,
@@ -420,5 +562,191 @@ export function quoteSwapLocal(
     feeAmount,
     effectiveExchangeRate: Number(tradeRateWad) / 1e18,
     impliedApyAfterPct: calculateImpliedApyPct(rateAfter, tauWad),
+  };
+}
+
+export interface ZapInLpEstimate {
+  ok: boolean;
+  estLpOut: bigint;
+  minLpOut: bigint;
+  syForSwap: bigint;
+  isEmptyBootstrap: boolean;
+  isOversizedError?: boolean;
+  reason?: string;
+}
+
+function bigIntSqrt(n: bigint): bigint {
+  if (n <= 0n) return 0n;
+  let x = n;
+  let y = (x + 1n) >> 1n;
+  while (y < x) {
+    x = y;
+    y = (x + n / x) >> 1n;
+  }
+  return x;
+}
+
+export function estimateZapInLp(
+  state: MarketStateRaw,
+  syAmount: bigint,
+  nowSeconds: bigint,
+  slippageBps = 50,
+  pyIndex: bigint = SCALAR_9
+): ZapInLpEstimate {
+  if (syAmount <= 0n) {
+    return {
+      ok: false,
+      estLpOut: 0n,
+      minLpOut: 0n,
+      syForSwap: 0n,
+      isEmptyBootstrap: false,
+      reason: "Amount must be strictly greater than zero",
     };
+  }
+  const tauWad = calculateTauWad(nowSeconds, state.maturity);
+  if (tauWad <= 0n) {
+    return {
+      ok: false,
+      estLpOut: 0n,
+      minLpOut: 0n,
+      syForSwap: 0n,
+      isEmptyBootstrap: false,
+      reason: "Market already matured",
+    };
+  }
+
+  if (pyIndex < 0n) {
+    return {
+      ok: false,
+      estLpOut: 0n,
+      minLpOut: 0n,
+      syForSwap: 0n,
+      isEmptyBootstrap: false,
+      reason: "Invalid PyIndex rate",
+    };
+  }
+  const safePyIndex = pyIndex === 0n ? SCALAR_9 : pyIndex;
+  const ptRes = state.total_pt_reserve;
+  const syRes = state.total_sy_reserve;
+  const totalLp = state.total_lp_supply;
+
+  if (totalLp === 0n && ptRes === 0n && syRes === 0n) {
+    const syForLp = syAmount / 2n;
+    const syForPy = syAmount - syForLp;
+    const ptMinted = syToAsset(safePyIndex, syForPy);
+    const rawLp = bigIntSqrt(ptMinted * syForLp);
+    const estLpOut = rawLp > 1000n ? rawLp - 1000n : 0n;
+    return {
+      ok: estLpOut > 0n,
+      estLpOut,
+      minLpOut: estLpOut > 0n ? applySlippage(estLpOut, slippageBps) : 1n,
+      syForSwap: 0n,
+      isEmptyBootstrap: true,
+      reason: estLpOut > 0n ? undefined : "Initial LP liquidity too small",
+    };
+  }
+
+  if (totalLp <= 0n || ptRes <= 0n || syRes <= 0n) {
+    return {
+      ok: false,
+      estLpOut: 0n,
+      minLpOut: 0n,
+      syForSwap: 0n,
+      isEmptyBootstrap: false,
+      reason: "Pool reserves are inconsistent for single-tx LP zap",
+    };
+  }
+
+  const assetRes = syToAsset(safePyIndex, syRes);
+  let e0: bigint;
+  try {
+    e0 = getExchangeRateWad(ptRes, assetRes, tauWad, state.scalar_root, state.initial_anchor);
+  } catch (err) {
+    return {
+      ok: false,
+      estLpOut: 0n,
+      minLpOut: 0n,
+      syForSwap: 0n,
+      isEmptyBootstrap: false,
+      reason: err instanceof Error ? err.message : "Invalid AMM pool state",
+    };
+  }
+
+  const assetSumCeil = ((syRes + syAmount) * safePyIndex + (SCALAR_9 - 1n)) / SCALAR_9;
+  const kSySumCeil = (assetSumCeil * e0 + (WAD - 1n)) / WAD;
+  const denom = ptRes + kSySumCeil;
+  const xMax = denom > 0n ? (syAmount * ptRes) / denom : 0n;
+  const margin = xMax >= 2n ? (xMax / 200n > 1n ? xMax / 200n : 1n) : 0n;
+  const syForSwap = xMax > margin ? xMax - margin : 0n;
+
+  if (syForSwap <= 0n || syForSwap >= syAmount) {
+    return {
+      ok: false,
+      estLpOut: 0n,
+      minLpOut: 0n,
+      syForSwap: 0n,
+      isEmptyBootstrap: false,
+      reason: "Zap amount too small to split for LP swap",
+    };
+  }
+
+  try {
+    const swapQuote = quoteSwapLocal(state, "sy_for_pt", syForSwap, nowSeconds, slippageBps, safePyIndex);
+    const feeRate = calculateFeeRate(tauWad, state.annual_fee_rate);
+    const assetIn = syToAsset(safePyIndex, syForSwap);
+    const tradeRate = getExchangeRateWad(ptRes, assetRes + assetIn, tauWad, state.scalar_root, state.initial_anchor);
+    const grossPt = wadMul(assetIn, tradeRate);
+    const fee = wadMul(grossPt, feeRate);
+    const protoFee = (fee * state.protocol_fee_bps) / 10_000n;
+    const ptBought = swapQuote.estimatedOut;
+    const ptResPost = ptRes - ptBought - protoFee;
+    const syResPost = syRes + syForSwap;
+
+    if (ptResPost <= 0n || syResPost <= 0n) {
+      return {
+        ok: false,
+        estLpOut: 0n,
+        minLpOut: 0n,
+        syForSwap,
+        isEmptyBootstrap: false,
+        isOversizedError: true,
+        reason: "LP zap exceeds safe pool liquidity bounds",
+      };
+    }
+
+    const syRem = syAmount - syForSwap;
+    const syNeeded = (ptBought * syResPost + (ptResPost - 1n)) / ptResPost;
+    const ptToAdd = syNeeded <= syRem ? ptBought : (syRem * ptResPost) / syResPost;
+    const syToAdd = syNeeded <= syRem ? syNeeded : syRem;
+
+    const lpFromPt = (ptToAdd * totalLp) / ptResPost;
+    const lpFromSy = (syToAdd * totalLp) / syResPost;
+    const estLpOut = lpFromPt < lpFromSy ? lpFromPt : lpFromSy;
+
+    return {
+      ok: estLpOut > 0n,
+      estLpOut,
+      minLpOut: estLpOut > 0n ? applySlippage(estLpOut, slippageBps) : 1n,
+      syForSwap,
+      isEmptyBootstrap: false,
+      reason: estLpOut > 0n ? undefined : "Zap amount produces zero LP shares",
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "LP zap exceeds pool AMM bounds";
+    const isOversized =
+      msg.includes("Negative implied yield") ||
+      msg.includes("4%-96%") ||
+      msg.includes("Exceeds PT pool reserve");
+    return {
+      ok: false,
+      estLpOut: 0n,
+      minLpOut: 0n,
+      syForSwap,
+      isEmptyBootstrap: false,
+      isOversizedError: isOversized,
+      reason: isOversized
+        ? "LP zap exceeds pool AMM depth (would push implied yield negative). Reduce amount or supply dual-sided liquidity."
+        : msg,
+    };
+  }
 }

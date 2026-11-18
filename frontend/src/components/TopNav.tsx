@@ -115,7 +115,7 @@ export function TopNav({
         >
           <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-glass-card border border-glass-rim overflow-hidden p-1 shadow-glass">
             <Image
-              src="/logo.png"
+              src="/icon.svg"
               alt="NivoraFi Logo"
               width={36}
               height={36}

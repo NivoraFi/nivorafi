@@ -556,13 +556,12 @@ export function generateApySparkline(
 
   // Extract all valid swap points
   const apyPoints = deriveImpliedApyHistory(events, maturityTimestamp);
+  if (apyPoints.length === 0) {
+    return [];
+  }
 
   const buckets: SparklinePoint[] = [];
-  let lastKnownApy = 5.42; // default fallback anchor
-
-  if (apyPoints.length > 0) {
-    lastKnownApy = apyPoints[0].impliedApyPct;
-  }
+  let lastKnownApy = apyPoints[0].impliedApyPct;
 
   for (let i = 0; i < bucketCount; i++) {
     const bucketStart = startTime + i * bucketSize;

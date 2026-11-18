@@ -1,55 +1,143 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Activity } from "lucide-react";
-import { TopNav } from "@/components/TopNav";
+import { TopNav, ViewMode } from "@/components/TopNav";
 import { MarketExplorerTable } from "@/components/markets/MarketExplorerTable";
 import { TestnetFaucetModal } from "@/components/faucet/TestnetFaucetModal";
 import { DirectionalReveal, InteractiveLiftCard } from "@/components/ui/motion-primitives";
 import { useMarket } from "@/context/MarketContext";
-import { getMarketBaselineMetrics } from "@/lib/markets";
+import { useWallet } from "@/context/WalletProvider";
+import { useTxToast } from "@/hooks/useTxToast";
+import { deriveMarketStatus } from "@/lib/markets";
+import {
+  prepareChangeTrustUsdcTx,
+  requestFriendbotFunding,
+  submitSignedHorizonTx,
+} from "@/lib/stellar";
+
+function useSafeRouter() {
+  try {
+    return useRouter();
+  } catch {
+    return null;
+  }
+}
 
 export function MarketsPageClient() {
-  const { markets = [], marketMetrics = {} } = useMarket();
+  const router = useSafeRouter();
+  const { address, signTransactionXdr } = useWallet();
+  const {
+    markets = [],
+    activeMarketId,
+    activePortfolio,
+    loadingSnapshot,
+    marketMetrics = {},
+    refreshAllMetrics,
+  } = useMarket();
+  const { notifyTxPending, notifyTxSuccess, notifyTxError } = useTxToast();
   const [isFaucetOpen, setIsFaucetOpen] = useState(false);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
 
-  // Aggregate metrics summary for top strip
+  const handleSwitchView = useCallback(
+    (view: ViewMode) => {
+      const targetUrl =
+        view === "trade"
+          ? `/trade/${activeMarketId || "usdc-90d"}`
+          : view === "portfolio"
+          ? "/portfolio"
+          : "/";
+      if (router) {
+        try {
+          router.push(targetUrl);
+          return;
+        } catch {}
+      }
+      if (typeof window !== "undefined") {
+        window.location.href = targetUrl;
+      }
+    },
+    [router, activeMarketId]
+  );
+
+  const handleRefresh = useCallback(async () => {
+    await refreshAllMetrics();
+  }, [refreshAllMetrics]);
+
+  const handleFundXlm = useCallback(async () => {
+    if (!address) return;
+    setBusyAction("Requesting Friendbot XLM...");
+    const toastId = notifyTxPending("Friendbot XLM", "Requesting 10,000 testnet XLM...");
+    try {
+      await requestFriendbotFunding(address);
+      notifyTxSuccess(toastId, "", "Friendbot XLM", "10,000 Testnet XLM credited to wallet.");
+      await refreshAllMetrics();
+    } catch (err) {
+      notifyTxError(toastId, err, undefined, "Friendbot XLM");
+    } finally {
+      setBusyAction(null);
+    }
+  }, [address, refreshAllMetrics, notifyTxPending, notifyTxSuccess, notifyTxError]);
+
+  const handleAddUsdcTrustline = useCallback(async () => {
+    if (!address) return;
+    setBusyAction("Signing USDC Trustline...");
+    const toastId = notifyTxPending("USDC Trustline", "Signing USDC trustline on Horizon...");
+    try {
+      const unsignedXdr = await prepareChangeTrustUsdcTx(address);
+      const signedXdr = await signTransactionXdr(unsignedXdr);
+      setBusyAction("Submitting USDC Trustline...");
+      const res = await submitSignedHorizonTx(signedXdr);
+      notifyTxSuccess(toastId, res.hash, "USDC Trustline", "USDC trustline established on Testnet.");
+      await refreshAllMetrics();
+    } catch (err) {
+      notifyTxError(toastId, err, (err as any)?.txHash, "USDC Trustline");
+    } finally {
+      setBusyAction(null);
+    }
+  }, [address, signTransactionXdr, refreshAllMetrics, notifyTxPending, notifyTxSuccess, notifyTxError]);
+
+  // Aggregate live metrics summary for top strip (zero synthetic baselines)
   const { totalTvlUsd, peakImpliedApy, activeCount } = useMemo(() => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
     let tvl = 0;
     let peakApy = 0;
     let active = 0;
 
     for (const m of markets) {
-      const met = marketMetrics[m.id] ?? getMarketBaselineMetrics(m);
-      const mtvl = met.tvlUsd;
-      const mapy = met.impliedApyPct;
+      const met = marketMetrics[m.id];
+      const mtvl = met?.tvlUsd ?? 0;
+      const mapy = met?.impliedApyPct ?? 0;
+      const isMatured = met ? met.isMatured : deriveMarketStatus(m.maturity, nowSeconds) === "MATURED";
       tvl += mtvl;
       if (mapy > peakApy) peakApy = mapy;
-      if (!met.isMatured) active++;
+      if (!isMatured) active++;
     }
 
     return {
-      totalTvlUsd: tvl > 0 ? tvl : 72000,
-      peakImpliedApy: peakApy > 0 ? peakApy : 10.15,
-      activeCount: active > 0 ? active : markets.length,
+      totalTvlUsd: tvl,
+      peakImpliedApy: peakApy,
+      activeCount: active,
     };
   }, [markets, marketMetrics]);
 
   return (
     <div className="min-h-screen bg-canvas text-ink flex flex-col">
-      {/* Top Navigation facade */}
+      {/* Top Navigation */}
       <DirectionalReveal from="top" distance={16} duration={0.40}>
         <TopNav
           viewMode="landing"
           activeTab="markets"
-          onRefresh={() => {}}
-          refreshing={false}
-          onFundXlm={() => {}}
-          onAddUsdcTrustline={() => {}}
+          onToggleView={handleSwitchView}
+          onRefresh={() => void handleRefresh()}
+          refreshing={loadingSnapshot}
+          onFundXlm={() => void handleFundXlm()}
+          onAddUsdcTrustline={() => void handleAddUsdcTrustline()}
           onOpenFaucet={() => setIsFaucetOpen(true)}
-          usdcTrustlineExists={true}
-          accountExists={true}
-          busyAction={null}
+          usdcTrustlineExists={activePortfolio ? activePortfolio.usdcTrustlineExists : null}
+          accountExists={activePortfolio ? activePortfolio.accountExists : null}
+          busyAction={busyAction}
         />
       </DirectionalReveal>
 

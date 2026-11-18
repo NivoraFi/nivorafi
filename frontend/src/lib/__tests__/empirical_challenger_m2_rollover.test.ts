@@ -377,7 +377,7 @@ describe("Adversarial Empirical Challenge Suite: M2 Atomic Rollover Engine & Mat
 
       const built = buildActionArgs(action);
       expect(built.method).toBe("rollover_to_pt");
-      expect(built.args.length).toBe(6);
+      expect(built.args.length).toBe(7);
 
       expect(scValToNative(built.args[0])).toBe(testCaller);
       expect(scValToNative(built.args[1])).toBe(testReceiver);
@@ -385,9 +385,10 @@ describe("Adversarial Empirical Challenge Suite: M2 Atomic Rollover Engine & Mat
       expect(scValToNative(built.args[3])).toBe(usdc30D.contracts.poolId);
       expect(scValToNative(built.args[4])).toBe(25_0000000n);
       expect(scValToNative(built.args[5])).toBe(25_5000000n);
+      expect(typeof scValToNative(built.args[6])).toBe("bigint");
     });
 
-    it("constructs exact 6 ScVal arguments for rollover_to_py", () => {
+    it("constructs exact 7 ScVal arguments for rollover_to_py", () => {
       const action: ProtocolAction = {
         type: "rollover_to_py",
         caller: testCaller,
@@ -400,7 +401,7 @@ describe("Adversarial Empirical Challenge Suite: M2 Atomic Rollover Engine & Mat
 
       const built = buildActionArgs(action);
       expect(built.method).toBe("rollover_to_py");
-      expect(built.args.length).toBe(6);
+      expect(built.args.length).toBe(7);
 
       expect(scValToNative(built.args[0])).toBe(testCaller);
       expect(scValToNative(built.args[1])).toBe(testCaller);
@@ -408,6 +409,7 @@ describe("Adversarial Empirical Challenge Suite: M2 Atomic Rollover Engine & Mat
       expect(scValToNative(built.args[3])).toBe(usdc30D.contracts.poolId);
       expect(scValToNative(built.args[4])).toBe(30_0000000n);
       expect(scValToNative(built.args[5])).toBe(29_7000000n);
+      expect(typeof scValToNative(built.args[6])).toBe("bigint");
     });
   });
 

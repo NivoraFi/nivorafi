@@ -457,11 +457,12 @@ describe("E2E Test Suite — Tier 3: Cross-Feature Interactions", () => {
 
     it("searches markets by query '90D' returning all 90-day tenor markets", () => {
       const filtered = filterMarkets(PRESET_MARKETS, "ALL", "ALL", "90D");
-      expect(filtered.length).toBe(3); // usdc-90d, usdc-matured, xlm-90d
+      expect(filtered.length).toBe(4); // usdc-90d, usdc-matured, xlm-90d, usdc-slender-90d
       const ids = filtered.map((m) => m.id);
       expect(ids).toContain("usdc-90d");
       expect(ids).toContain("xlm-90d");
       expect(ids).toContain("usdc-matured");
+      expect(ids).toContain("usdc-slender-90d");
     });
 
     it("searches markets by contract ID matching exact pool address", () => {

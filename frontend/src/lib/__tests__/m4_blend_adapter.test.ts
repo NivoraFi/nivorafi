@@ -376,7 +376,7 @@ describe("Milestone 4: Blend Adapter & Config Implementation", () => {
   // --------------------------------------------------------------------------
   describe("Suite 5: Market Definition & Preset Catalog Integration", () => {
     it("verifies all PRESET_MARKETS have syntactically valid blendPoolId addresses", () => {
-      expect(PRESET_MARKETS.length).toBe(4);
+      expect(PRESET_MARKETS.length).toBe(5);
       for (const market of PRESET_MARKETS) {
         expect(isValidStellarContractId(market.contracts.blendPoolId)).toBe(true);
         expect(market.contracts.blendPoolId.length).toBe(56);

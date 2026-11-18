@@ -13,7 +13,6 @@ import {
   fetchUserPositionData,
   convertToChartDataPoints,
   convertToApyDataPoints,
-  synthesizeFallbackChart,
   buildEmptyPositionsSummary,
   buildEmptyUserPositions,
   buildEmptyChartResponse,
@@ -39,146 +38,42 @@ describe("Empirical Challenger M3: Network & Error Resilience for indexerAnalyti
   });
 
   // ==========================================================================
-  // Suite 1: Offline Fallback Synthesis When Indexer Is Unreachable
+  // Suite 1: Honest Empty Fallback Schema Invariants (Zero Synthetic Data)
   // ==========================================================================
-  describe("Suite 1: Offline Fallback Synthesis & Schema Invariants", () => {
-    it("1.1 synthesizes exact bucket counts and step sizes for all supported intervals", () => {
-      const market = getMockMarket("usdc-90d");
-
-      // 1D: 24 buckets of 3600 seconds
-      const chart1D = synthesizeFallbackChart(market, "1D");
-      expect(chart1D.success).toBe(true);
-      expect(chart1D.interval).toBe("1D");
-      expect(chart1D.count).toBe(24);
-      expect(chart1D.data.length).toBe(24);
-      for (let i = 1; i < chart1D.data.length; i++) {
-        expect(chart1D.data[i].timestamp - chart1D.data[i - 1].timestamp).toBe(3600);
-      }
-
-      // 1W: 168 buckets of 3600 seconds
-      const chart1W = synthesizeFallbackChart(market, "1W");
-      expect(chart1W.success).toBe(true);
-      expect(chart1W.interval).toBe("1W");
-      expect(chart1W.count).toBe(168);
-      expect(chart1W.data.length).toBe(168);
-      for (let i = 1; i < chart1W.data.length; i++) {
-        expect(chart1W.data[i].timestamp - chart1W.data[i - 1].timestamp).toBe(3600);
-      }
-
-      // 1M: 30 buckets of 86400 seconds (1 day)
-      const chart1M = synthesizeFallbackChart(market, "1M");
-      expect(chart1M.success).toBe(true);
-      expect(chart1M.interval).toBe("1M");
-      expect(chart1M.count).toBe(30);
-      expect(chart1M.data.length).toBe(30);
-      for (let i = 1; i < chart1M.data.length; i++) {
-        expect(chart1M.data[i].timestamp - chart1M.data[i - 1].timestamp).toBe(86400);
-      }
-
-      // ALL: 30 buckets of 86400 seconds
-      const chartALL = synthesizeFallbackChart(market, "ALL");
-      expect(chartALL.success).toBe(true);
-      expect(chartALL.interval).toBe("ALL");
-      expect(chartALL.count).toBe(30);
-      expect(chartALL.data.length).toBe(30);
-      for (let i = 1; i < chartALL.data.length; i++) {
-        expect(chartALL.data[i].timestamp - chartALL.data[i - 1].timestamp).toBe(86400);
+  describe("Suite 1: Honest Empty Fallback Schema Invariants", () => {
+    it("1.1 buildEmptyChartResponse returns honest zero counts and empty arrays for all intervals", () => {
+      for (const interval of ["1D", "1W", "1M", "ALL"] as MarketChartInterval[]) {
+        const chart = buildEmptyChartResponse("usdc-90d", interval);
+        expect(chart.success).toBe(true);
+        expect(chart.market).toBe("usdc-90d");
+        expect(chart.interval).toBe(interval);
+        expect(chart.count).toBe(0);
+        expect(chart.data).toEqual([]);
+        expect(chart.summary.tvl).toBe(0);
+        expect(chart.summary.volume24h).toBe(0);
+        expect(chart.summary.volume7d).toBe(0);
+        expect(chart.summary.highApy).toBe(0);
+        expect(chart.summary.lowApy).toBe(0);
       }
     });
 
-    it("1.2 gracefully defaults to 24 hourly buckets on unrecognized interval parameter", () => {
-      const market = getMockMarket("usdc-90d");
-      // @ts-expect-error deliberately passing invalid interval
-      const fallback = synthesizeFallbackChart(market, "INVALID_INTERVAL");
-      expect(fallback.success).toBe(true);
-      expect(fallback.count).toBe(24);
-      expect(fallback.data.length).toBe(24);
-      expect(fallback.data[1].timestamp - fallback.data[0].timestamp).toBe(3600);
-    });
+    it("1.2 fetchMarketChartData returns honest empty response when indexer is unreachable or returns 503", async () => {
+      globalThis.fetch = async () => new Response("Service Unavailable", { status: 503 });
+      const res503 = await fetchMarketChartData({ market: "xlm-90d", interval: "1D" });
+      expect(res503.success).toBe(true);
+      expect(res503.market).toBe("xlm-90d");
+      expect(res503.count).toBe(0);
+      expect(res503.data).toEqual([]);
+      expect(res503.summary.tvl).toBe(0);
 
-    it("1.3 applies correct asset-specific yields for XLM, EURC, and USDC/default", () => {
-      const xlmMarket = getMockMarket("xlm-90d");
-      const xlmChart = synthesizeFallbackChart(xlmMarket, "1D");
-      expect(xlmChart.data[0].underlyingApyPct).toBe(3.2);
-      expect(xlmChart.data[0].impliedApyPct).toBe(6.5);
-      expect(xlmChart.summary.currentUnderlyingApy).toBe(3.2);
-      expect(xlmChart.summary.tvl).toBe(150000);
-
-      const eurcMarket: MarketDefinition = {
-        id: "eurc-90d",
-        name: "Pendle bEURC PT 90D",
-        ptSymbol: "PT-bEURC-90D",
-        ytSymbol: "YT-bEURC-90D",
-        sySymbol: "sy-bEURC",
-        lpSymbol: "LP-bEURC-90D",
-        asset: {
-          code: "EURC",
-          symbol: "EURC",
-          name: "Euro Coin",
-          decimals: 7,
-          sacContractId: "CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ",
-          iconName: "eurc",
-        },
-        tenor: "90D",
-        maturity: 1801909055,
-        contracts: {
-          poolId: "MOCK_EURC_POOL",
-          syId: "MOCK_EURC_SY",
-          ptId: "MOCK_EURC_PT",
-          ytId: "MOCK_EURC_YT",
-        },
+      globalThis.fetch = async () => {
+        throw new Error("ECONNREFUSED");
       };
-      const eurcChart = synthesizeFallbackChart(eurcMarket, "1D");
-      expect(eurcChart.data[0].underlyingApyPct).toBe(3.8);
-      expect(eurcChart.data[0].impliedApyPct).toBe(7.2);
-      expect(eurcChart.summary.currentUnderlyingApy).toBe(3.8);
-      expect(eurcChart.summary.tvl).toBe(542000);
-
-      const usdcMarket = getMockMarket("usdc-90d");
-      const usdcChart = synthesizeFallbackChart(usdcMarket, "1D");
-      expect(usdcChart.data[0].underlyingApyPct).toBe(4.85);
-      expect(usdcChart.data[0].impliedApyPct).toBe(8.57);
-      expect(usdcChart.summary.currentUnderlyingApy).toBe(4.85);
-      expect(usdcChart.summary.tvl).toBe(542000);
-    });
-
-    it("1.4 handles matured markets: guarantees PT=1.0, YT=0.0, ImpliedApy=0.0 across all buckets", () => {
-      // Test a market that matured prior to the chart window
-      const maturedMarket: MarketDefinition = {
-        ...getMockMarket("usdc-matured"),
-        maturity: Math.floor(Date.now() / 1000) - 86400 * 30, // matured 30 days ago
-      };
-      const chart = synthesizeFallbackChart(maturedMarket, "1W");
-
-      expect(chart.count).toBe(168);
-      for (const pt of chart.data) {
-        expect(pt.ptPrice).toBe(1.0);
-        expect(pt.ytPrice).toBe(0.0);
-        expect(pt.impliedApyPct).toBe(0.0);
-        expect(pt.impliedApy).toBe(0.0);
-        expect(pt.close).toBe(1.0);
-      }
-      expect(chart.summary.currentPtPrice).toBe(1.0);
-      expect(chart.summary.currentYtPrice).toBe(0.0);
-      expect(chart.summary.currentApy).toBe(0.0);
-      expect(chart.summary.currentImpliedApy).toBe(0.0);
-    });
-
-    it("1.5 survives sparse or minimal MarketDefinition objects without throwing", () => {
-      const sparseMarket: MarketDefinition = {
-        id: "sparse-test",
-        name: "Sparse Test",
-        asset: { code: "CUSTOM", name: "Custom", icon: "", color: "" },
-        maturity: Math.floor(Date.now() / 1000) + 86400 * 30,
-        contracts: {} as any,
-        category: "fixed",
-      };
-
-      const chart = synthesizeFallbackChart(sparseMarket, "1D");
-      expect(chart.success).toBe(true);
-      expect(chart.market).toBe("sparse-test");
-      expect(chart.count).toBe(24);
-      expect(chart.summary.marketAddress).toBe("");
+      const resErr = await fetchMarketChartData({ market: "usdc-matured", interval: "1W" });
+      expect(resErr.success).toBe(true);
+      expect(resErr.market).toBe("usdc-matured");
+      expect(resErr.count).toBe(0);
+      expect(resErr.data).toEqual([]);
     });
 
     it("1.6 buildEmptyPositionsSummary and buildEmptyUserPositions guarantee finite zero numbers", () => {

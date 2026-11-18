@@ -10,6 +10,8 @@ pub enum DataKey {
     Maturity,
     UnderlyingAsset,
     BlendPool,
+    SlenderPool,
+    SToken,
     SyContract,
     PtContract,
     YtContract,
@@ -25,6 +27,10 @@ pub enum DataKey {
     TotalSupply,
     TotalPtReserve,
     TotalSyReserve,
+    PtPrincipalReserve,
+    YtYieldReserve,
+    GlobalAccruedYield,
+    TotalYieldWeight,
     TotalLpSupply,
     Decimals,
     Name,
@@ -51,6 +57,7 @@ pub enum DataKey {
     MarketByPool(Address),
     MarketData(Address),
     SyByAsset(Address),
+    WhitelistedCreator(Address),
 
     // === Persistent Storage (User Positions & Balances) ===
     Balance(Address),

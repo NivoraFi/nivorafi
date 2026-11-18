@@ -106,8 +106,10 @@ export function TokenProfileHeader({
         {/* Right Wing: Protocol Name, Maturity Date & Time Left */}
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
           <div className="flex items-center gap-1.5 rounded-xl border border-hairline bg-surface-muted/70 px-3 py-1.5 text-xs">
-            <TokenIcon symbol="BLEND" size="xs" />
-            <span className="font-semibold text-ink">Blend Protocol</span>
+            <TokenIcon symbol={market.sySymbol === "sy-sUSDC" ? market.asset.code : "BLEND"} size="xs" />
+            <span className="font-semibold text-ink">
+              {market.sySymbol === "sy-sUSDC" ? "Slender Protocol" : "Blend Protocol"}
+            </span>
           </div>
 
           <div className="flex items-center gap-1.5 rounded-xl border border-hairline bg-surface-muted/70 px-3 py-1.5 text-xs">

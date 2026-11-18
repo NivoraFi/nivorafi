@@ -190,15 +190,16 @@ describe("Milestone M5 — Features #18, #19 & Design Audit: Settlement & Rollov
       const built = buildActionArgs(action);
       expect(built.contractId).toBe(factoryId);
       expect(built.method).toBe("rollover_to_pt");
-      expect(built.args.length).toBe(6);
+      expect(built.args.length).toBe(7);
 
-      // Verify caller, receiver, source, target, pt_amount, min_target_pt
+      // Verify caller, receiver, source, target, pt_amount, min_target_pt, deadline
       expect(scValToNative(built.args[0])).toBe(caller);
       expect(scValToNative(built.args[1])).toBe(receiver);
       expect(scValToNative(built.args[2])).toBe(sourcePool);
       expect(scValToNative(built.args[3])).toBe(targetPool);
       expect(scValToNative(built.args[4])).toBe(10_0000000n);
       expect(scValToNative(built.args[5])).toBe(10_2000000n);
+      expect(typeof scValToNative(built.args[6])).toBe("bigint");
     });
 
     it("builds valid XDR arguments for rollover_to_py", () => {
@@ -216,9 +217,10 @@ describe("Milestone M5 — Features #18, #19 & Design Audit: Settlement & Rollov
       const built = buildActionArgs(action);
       expect(built.contractId).toBe(factoryId);
       expect(built.method).toBe("rollover_to_py");
-      expect(built.args.length).toBe(6);
+      expect(built.args.length).toBe(7);
       expect(scValToNative(built.args[4])).toBe(20_0000000n);
       expect(scValToNative(built.args[5])).toBe(19_8000000n);
+      expect(typeof scValToNative(built.args[6])).toBe("bigint");
     });
 
     it("builds valid arguments for redeem_pt_post_maturity and redeem_pt_to_btoken", () => {

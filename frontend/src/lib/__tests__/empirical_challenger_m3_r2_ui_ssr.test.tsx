@@ -198,8 +198,8 @@ describe("Empirical Challenger M3 R2: UI & SSR Robustness Suite", () => {
       const expectedMobileValuationRegex = /<div class="tabular-mono text-xs font-bold text-ink">\$\d+\.\d{2}<\/div>/;
       expect(cleanHtml).toMatch(expectedMobileValuationRegex);
 
-      // Mobile card valuation for usdc-90d is rendered with .tabular-mono
-      expect(cleanHtml).toContain('<div class="tabular-mono text-xs font-bold text-ink">$1263.76</div>');
+      // Mobile card valuation for usdc-90d is rendered with .tabular-mono (unhydrated blendRate=1.0)
+      expect(cleanHtml).toContain('<div class="tabular-mono text-xs font-bold text-ink">$1262.50</div>');
     });
 
     it("2.2 maintains full layout parity between desktop table and mobile cards", () => {
@@ -225,16 +225,16 @@ describe("Empirical Challenger M3 R2: UI & SSR Robustness Suite", () => {
       expect(cleanHtml).toContain("Pendle bUSDC PT 90D");
       // 3. Tenor
       expect(cleanHtml).toContain("90D");
-      // 4. Valuation in tabular-mono
-      expect(cleanHtml).toContain('<div class="tabular-mono text-xs font-bold text-ink">$1263.76</div>');
+      // 4. Valuation in tabular-mono (unhydrated blendRate=1.0)
+      expect(cleanHtml).toContain('<div class="tabular-mono text-xs font-bold text-ink">$1262.50</div>');
       // 5. PT Balance
       expect(cleanHtml).toContain("1000 PT");
       // 6. YT Balance
       expect(cleanHtml).toContain("1000 YT");
       // 7. LP Balance
       expect(cleanHtml).toContain("200 LP");
-      // 8. Yield Accrued ($12.51 in tabular-mono)
-      expect(cleanHtml).toContain("$12.51");
+      // 8. Yield Accrued ($12.50 in tabular-mono)
+      expect(cleanHtml).toContain("$12.50");
       // 9. Action buttons
       expect(cleanHtml).toContain("Trade");
       expect(cleanHtml).toContain("Redeem");
@@ -450,7 +450,7 @@ describe("Empirical Challenger M3 R2: UI & SSR Robustness Suite", () => {
       expect(cleanHtml).toContain("border-warn/30 bg-warn-soft text-warn");
 
       // Mobile card valuation must be in .tabular-mono
-      expect(cleanHtml).toContain('<div class="tabular-mono text-xs font-bold text-ink">$500.50</div>');
+      expect(cleanHtml).toContain('<div class="tabular-mono text-xs font-bold text-ink">$500.00</div>');
 
       // Rollover banner must be prominent
       expect(cleanHtml).toContain("Action Required: Matured Positions Detected");
@@ -518,8 +518,8 @@ describe("Empirical Challenger M3 R2: UI & SSR Robustness Suite", () => {
 
       const cleanHtml = stripHtmlComments(html);
 
-      // Valuation should be $980,980.00 (1M PT * 0.98 * 1.001)
-      expect(cleanHtml).toContain('<div class="tabular-mono text-xs font-bold text-ink">$980980.00</div>');
+      // Valuation should be $980,000.00 (1M PT * 0.98 * 1.0)
+      expect(cleanHtml).toContain('<div class="tabular-mono text-xs font-bold text-ink">$980000.00</div>');
     });
 
     it("6.4 renders empty state gracefully when user has zero positions across all markets", () => {

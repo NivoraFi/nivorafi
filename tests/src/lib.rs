@@ -13,6 +13,8 @@ mod empirical_challenger_2_it2_tests;
 mod empirical_challenger_2_tests;
 mod factory_tests;
 mod security_hardening_tests;
+mod slender_tests;
+mod zap_in_tests;
 
 use common::fixed_point::{SCALAR_9, WAD};
 use common::interfaces::{
@@ -203,7 +205,8 @@ fn test_atomic_mint_py_and_early_unwind() {
     f.usdc_admin_client.mint(&f.user1, &amount);
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
 
-    let (pt_out, yt_out) = f.pool_client.mint_py(&f.user1, &f.user1, &amount);
+    let dl = f.env.ledger().timestamp() + 3600;
+    let (pt_out, yt_out) = f.pool_client.mint_py(&f.user1, &f.user1, &amount, &dl);
     assert_eq!(pt_out, amount);
     assert_eq!(yt_out, amount);
     assert_eq!(f.pt_client.balance(&f.user1), amount);
@@ -227,7 +230,8 @@ fn test_yt_checkpointing_hook_and_yield_claim() {
 
     f.usdc_admin_client.mint(&f.user1, &amount);
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &amount);
+    let dl = f.env.ledger().timestamp() + 3600;
+    f.pool_client.mint_py(&f.user1, &f.user1, &amount, &dl);
 
     // Index increases by 10%
     f.blend_client.set_b_rate(&1_100_000_000);
@@ -252,7 +256,8 @@ fn test_yt_transfer_balance_checkpointing() {
 
     f.usdc_admin_client.mint(&f.user1, &amount);
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &amount);
+    let dl = f.env.ledger().timestamp() + 3600;
+    f.pool_client.mint_py(&f.user1, &f.user1, &amount, &dl);
 
     // Index moves to 1.05 (+5%)
     f.blend_client.set_b_rate(&1_050_000_000);
@@ -278,7 +283,9 @@ fn test_log_normal_amm_swaps() {
     f.usdc_admin_client.mint(&f.user1, &mint_amount);
     f.sy_client.deposit(&f.user1, &f.user1, &mint_amount);
 
-    f.pool_client.mint_py(&f.user1, &f.user1, &1_200_000_000);
+    let dl = f.env.ledger().timestamp() + 3600;
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &1_200_000_000, &dl);
 
     // Add liquidity: 1,200,000 PT and 1,000,000 SY
     f.pool_client
@@ -288,18 +295,18 @@ fn test_log_normal_amm_swaps() {
     let user2_sy = 500_000_000i128;
     f.usdc_admin_client.mint(&f.user2, &user2_sy);
     f.sy_client.deposit(&f.user2, &f.user2, &user2_sy);
-    f.pool_client.mint_py(&f.user2, &f.user2, &100_000_000);
+    f.pool_client.mint_py(&f.user2, &f.user2, &100_000_000, &dl);
 
-    let (sy_out, fee) = f
-        .pool_client
-        .swap_exact_pt_for_sy(&f.user2, &f.user2, &50_000_000, &1);
+    let (sy_out, fee) =
+        f.pool_client
+            .swap_exact_pt_for_sy(&f.user2, &f.user2, &50_000_000, &1, &dl);
     assert!(sy_out > 0);
     assert!(fee > 0);
 
     // Swap exact SY for PT
-    let (pt_out, fee2) = f
-        .pool_client
-        .swap_exact_sy_for_pt(&f.user2, &f.user2, &20_000_000, &1);
+    let (pt_out, fee2) =
+        f.pool_client
+            .swap_exact_sy_for_pt(&f.user2, &f.user2, &20_000_000, &1, &dl);
     assert!(pt_out > 0);
     assert!(fee2 > 0);
 }
@@ -308,11 +315,13 @@ fn test_log_normal_amm_swaps() {
 #[test]
 fn test_single_pool_flash_swaps_yt() {
     let f = setup_protocol();
+    let dl = f.env.ledger().timestamp() + 3600;
 
     let init_sy = 3_000_000_000i128;
     f.usdc_admin_client.mint(&f.user1, &init_sy);
     f.sy_client.deposit(&f.user1, &f.user1, &init_sy);
-    f.pool_client.mint_py(&f.user1, &f.user1, &1_200_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &1_200_000_000, &dl);
     f.pool_client
         .add_liquidity(&f.user1, &f.user1, &1_200_000_000, &1_000_000_000, &1);
 
@@ -321,17 +330,17 @@ fn test_single_pool_flash_swaps_yt() {
     f.sy_client.deposit(&f.user2, &f.user2, &user2_sy);
 
     let sy_spend = 500_000i128;
-    let (yt_minted, sy_paid) = f
+    let (yt_minted, fee_yt) = f
         .pool_client
-        .swap_exact_sy_for_yt(&f.user2, &f.user2, &sy_spend, &1);
+        .swap_exact_sy_for_yt(&f.user2, &f.user2, &sy_spend, &1, &dl);
     assert!(yt_minted > 0);
-    assert_eq!(sy_paid, sy_spend);
+    assert!(fee_yt > 0);
     assert_eq!(f.yt_client.balance(&f.user2), yt_minted);
 
     // Sell YT back for SY
     let (sy_rec, fee) =
         f.pool_client
-            .swap_exact_yt_for_sy(&f.user2, &f.user2, &(yt_minted / 2), &1);
+            .swap_exact_yt_for_sy(&f.user2, &f.user2, &(yt_minted / 2), &1, &dl);
     assert!(sy_rec > 0);
     assert!(fee > 0);
 }
@@ -340,11 +349,13 @@ fn test_single_pool_flash_swaps_yt() {
 #[test]
 fn test_add_remove_liquidity_dead_shares() {
     let f = setup_protocol();
+    let dl = f.env.ledger().timestamp() + 3600;
 
     let initial_sy = 2_000_000_000i128;
     f.usdc_admin_client.mint(&f.user1, &initial_sy);
     f.sy_client.deposit(&f.user1, &f.user1, &initial_sy);
-    f.pool_client.mint_py(&f.user1, &f.user1, &1_000_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &1_000_000_000, &dl);
 
     let lp_shares =
         f.pool_client
@@ -366,7 +377,8 @@ fn test_post_maturity_settlement_and_pt_redemption() {
 
     f.usdc_admin_client.mint(&f.user1, &amount);
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &amount);
+    let dl = f.env.ledger().timestamp() + 3600;
+    f.pool_client.mint_py(&f.user1, &f.user1, &amount, &dl);
 
     // Advance time to post-maturity
     f.env.ledger().set_timestamp(f.maturity + 100);
@@ -389,15 +401,18 @@ fn test_blend_bad_debt_proportional_haircut() {
     let user_amount = 500_000_000i128;
     let total_amount = 1_000_000_000i128;
 
+    let dl = f.env.ledger().timestamp() + 3600;
     // User 1 deposits 500 SY and mints 500 PT + 500 YT
     f.usdc_admin_client.mint(&f.user1, &user_amount);
     f.sy_client.deposit(&f.user1, &f.user1, &user_amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &user_amount);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &user_amount, &dl);
 
     // User 2 deposits 500 SY and mints 500 PT + 500 YT
     f.usdc_admin_client.mint(&f.user2, &user_amount);
     f.sy_client.deposit(&f.user2, &f.user2, &user_amount);
-    f.pool_client.mint_py(&f.user2, &f.user2, &user_amount);
+    f.pool_client
+        .mint_py(&f.user2, &f.user2, &user_amount, &dl);
 
     assert_eq!(f.pt_client.total_supply(), total_amount);
     assert_eq!(f.sy_client.balance(&f.pool_client.address), total_amount);
@@ -443,13 +458,16 @@ fn test_blend_bad_debt_unequal_shares_multi_step_redemption() {
     let user2_amount = 300_000_000i128;
     let total_amount = 1_000_000_000i128;
 
+    let dl = f.env.ledger().timestamp() + 3600;
     f.usdc_admin_client.mint(&f.user1, &user1_amount);
     f.sy_client.deposit(&f.user1, &f.user1, &user1_amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &user1_amount);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &user1_amount, &dl);
 
     f.usdc_admin_client.mint(&f.user2, &user2_amount);
     f.sy_client.deposit(&f.user2, &f.user2, &user2_amount);
-    f.pool_client.mint_py(&f.user2, &f.user2, &user2_amount);
+    f.pool_client
+        .mint_py(&f.user2, &f.user2, &user2_amount, &dl);
 
     // Simulate 20% bad debt deficit (200 SY lost out of 1000 SY -> 800 SY remaining)
     f.sy_client.burn(&f.pool_client.address, &200_000_000);
@@ -499,7 +517,8 @@ fn test_100_percent_blend_utilization_emergency_exit() {
 
     f.usdc_admin_client.mint(&f.user1, &amount);
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &amount);
+    let dl = f.env.ledger().timestamp() + 3600;
+    f.pool_client.mint_py(&f.user1, &f.user1, &amount, &dl);
 
     f.env.ledger().set_timestamp(f.maturity + 100);
 
@@ -522,12 +541,17 @@ fn test_reentrancy_teardown_safety() {
     f.usdc_admin_client.mint(&f.user1, &amount);
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
 
+    let dl = f.env.ledger().timestamp() + 3600;
     // Consecutive calls in same ledger succeed cleanly without DoS lock
-    let (pt1, yt1) = f.pool_client.mint_py(&f.user1, &f.user1, &(amount / 2));
+    let (pt1, yt1) = f
+        .pool_client
+        .mint_py(&f.user1, &f.user1, &(amount / 2), &dl);
     assert_eq!(pt1, amount / 2);
     assert_eq!(yt1, amount / 2);
 
-    let (pt2, yt2) = f.pool_client.mint_py(&f.user1, &f.user1, &(amount / 2));
+    let (pt2, yt2) = f
+        .pool_client
+        .mint_py(&f.user1, &f.user1, &(amount / 2), &dl);
     assert_eq!(pt2, amount / 2);
     assert_eq!(yt2, amount / 2);
 }
@@ -666,8 +690,10 @@ fn test_security_self_transfer_no_inflation() {
     f.sy_client.transfer(&f.user1, &f.user1, &amount);
     assert_eq!(f.sy_client.balance(&f.user1), amount * 4);
 
+    let dl = f.env.ledger().timestamp() + 3600;
     // Mint PY and self-transfer PT & YT (both direct transfer & transfer_from)
-    f.pool_client.mint_py(&f.user1, &f.user1, &(amount * 2));
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &(amount * 2), &dl);
     f.pt_client.transfer(&f.user1, &f.user1, &amount);
     assert_eq!(f.pt_client.balance(&f.user1), amount * 2);
 
@@ -708,9 +734,11 @@ fn test_security_self_transfer_no_inflation() {
 fn test_security_pt_for_sy_protocol_fee_solvency() {
     let f = setup_protocol();
     let seed_sy = 3_000_000_000i128;
+    let dl = f.env.ledger().timestamp() + 3600;
     f.usdc_admin_client.mint(&f.user1, &seed_sy);
     f.sy_client.deposit(&f.user1, &f.user1, &seed_sy);
-    f.pool_client.mint_py(&f.user1, &f.user1, &1_200_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &1_200_000_000, &dl);
     let lp = f
         .pool_client
         .add_liquidity(&f.user1, &f.user1, &1_200_000_000, &1_000_000_000, &1);
@@ -719,11 +747,11 @@ fn test_security_pt_for_sy_protocol_fee_solvency() {
     let u2_sy = 500_000_000i128;
     f.usdc_admin_client.mint(&f.user2, &u2_sy);
     f.sy_client.deposit(&f.user2, &f.user2, &u2_sy);
-    f.pool_client.mint_py(&f.user2, &f.user2, &u2_sy);
+    f.pool_client.mint_py(&f.user2, &f.user2, &u2_sy, &dl);
 
     for _ in 0..5 {
         f.pool_client
-            .swap_exact_pt_for_sy(&f.user2, &f.user2, &100_000_000, &1);
+            .swap_exact_pt_for_sy(&f.user2, &f.user2, &100_000_000, &1, &dl);
     }
 
     let (_res_pt, res_sy) = f.pool_client.get_reserves();
@@ -747,13 +775,14 @@ fn test_security_redeem_btoken_bad_debt_haircut() {
     let f = setup_protocol();
     let half = 500_000_000i128;
 
+    let dl = f.env.ledger().timestamp() + 3600;
     f.usdc_admin_client.mint(&f.user1, &half);
     f.sy_client.deposit(&f.user1, &f.user1, &half);
-    f.pool_client.mint_py(&f.user1, &f.user1, &half);
+    f.pool_client.mint_py(&f.user1, &f.user1, &half, &dl);
 
     f.usdc_admin_client.mint(&f.user2, &half);
     f.sy_client.deposit(&f.user2, &f.user2, &half);
-    f.pool_client.mint_py(&f.user2, &f.user2, &half);
+    f.pool_client.mint_py(&f.user2, &f.user2, &half, &dl);
 
     // Burn 20% of pool SY to simulate Blend bad debt loss (800M SY backing 1000M PT)
     f.sy_client.burn(&f.pool_client.address, &200_000_000);
@@ -777,8 +806,9 @@ fn test_security_reinit_and_input_validation() {
         .sy_client
         .try_initialize(&f.admin, &f.usdc_client.address, &f.blend_client.address)
         .is_err());
+    let dl = f.env.ledger().timestamp() + 3600;
     assert!(f
         .pool_client
-        .try_swap_exact_pt_for_sy(&f.user1, &f.user1, &100, &-1)
+        .try_swap_exact_pt_for_sy(&f.user1, &f.user1, &100, &-1, &dl)
         .is_err());
 }

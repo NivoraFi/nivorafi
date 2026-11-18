@@ -6,6 +6,7 @@ pub mod fixed_point;
 pub mod governance;
 #[allow(clippy::too_many_arguments)]
 pub mod interfaces;
+pub mod metadata;
 pub mod reentrancy;
 pub mod storage_keys;
 pub mod transcendental;
@@ -18,7 +19,7 @@ mod test;
 // Re-exports
 pub use errors::ContractError;
 pub use events::*;
-pub use fixed_point::{wad_div, wad_mul, HALF_WAD, SCALAR_9, WAD};
+pub use fixed_point::{pos_sub, wad_div, wad_mul, HALF_WAD, SCALAR_9, WAD};
 pub use governance::*;
 pub use interfaces::*;
 pub use reentrancy::with_non_reentrant;
@@ -28,6 +29,7 @@ pub use ttl::{
     bump_instance_ttl, bump_persistent_ttl, calculate_bump_threshold, calculate_bump_to,
 };
 pub use yield_math::{
-    calculate_fee_rate, calculate_haircut, calculate_tau_wad, get_exchange_rate,
-    swap_exact_pt_for_sy_math, swap_exact_sy_for_pt_math, SwapResult,
+    asset_to_sy, asset_to_sy_ceil, calculate_fee_rate, calculate_haircut,
+    calculate_pro_rata_share, calculate_tau_wad, get_exchange_rate, swap_exact_pt_for_sy_math,
+    swap_exact_sy_for_pt_math, sy_to_asset, SwapResult,
 };

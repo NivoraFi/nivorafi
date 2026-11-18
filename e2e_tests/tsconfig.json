@@ -1,19 +1,23 @@
 {
   "compilerOptions": {
-    "lib": ["ESNext"],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "module": "esnext",
     "target": "esnext",
     "moduleResolution": "bundler",
     "moduleDetection": "force",
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
     "noEmit": true,
     "strict": true,
-    "downlevelIteration": true,
     "skipLibCheck": true,
-    "jsx": "preserve",
+    "jsx": "react",
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["bun-types"]
+    "types": ["bun"],
+    "paths": {
+      "@/*": ["../frontend/src/*"]
+    }
   },
   "include": ["src/**/*", "tests/**/*"]
 }

@@ -99,7 +99,7 @@ describe("Milestone 2: Atomic Rollover Engine & UI Verification Suite", () => {
       const built = buildActionArgs(action);
       expect(built.method).toBe("rollover_to_pt");
       expect(built.label).toBe("Atomic Rollover to Target PT");
-      expect(built.args.length).toBe(6);
+      expect(built.args.length).toBe(7);
 
       // Verify exact parameter mapping
       expect(scValToNative(built.args[0])).toBe(dummyCaller);
@@ -108,9 +108,11 @@ describe("Milestone 2: Atomic Rollover Engine & UI Verification Suite", () => {
       expect(scValToNative(built.args[3])).toBe(targetPool);
       expect(scValToNative(built.args[4])).toBe(10_0000000n);
       expect(scValToNative(built.args[5])).toBe(10_3500000n);
+      expect(typeof scValToNative(built.args[6])).toBe("bigint");
+      expect(scValToNative(built.args[6])).toBeGreaterThan(0n);
     });
 
-    it("builds valid 6-argument Soroban ScVal envelope for rollover_to_py", () => {
+    it("builds valid 7-argument Soroban ScVal envelope for rollover_to_py", () => {
       const action: ProtocolAction = {
         type: "rollover_to_py",
         caller: dummyCaller,
@@ -124,7 +126,7 @@ describe("Milestone 2: Atomic Rollover Engine & UI Verification Suite", () => {
       const built = buildActionArgs(action);
       expect(built.method).toBe("rollover_to_py");
       expect(built.label).toBe("Atomic Rollover to Target LP (PT+YT)");
-      expect(built.args.length).toBe(6);
+      expect(built.args.length).toBe(7);
 
       expect(scValToNative(built.args[0])).toBe(dummyCaller);
       expect(scValToNative(built.args[1])).toBe(dummyCaller);
@@ -132,6 +134,8 @@ describe("Milestone 2: Atomic Rollover Engine & UI Verification Suite", () => {
       expect(scValToNative(built.args[3])).toBe(targetPool);
       expect(scValToNative(built.args[4])).toBe(25_0000000n);
       expect(scValToNative(built.args[5])).toBe(24_7500000n);
+      expect(typeof scValToNative(built.args[6])).toBe("bigint");
+      expect(scValToNative(built.args[6])).toBeGreaterThan(0n);
     });
 
     it("handles asymmetric caller and receiver addresses without cross-contamination", () => {

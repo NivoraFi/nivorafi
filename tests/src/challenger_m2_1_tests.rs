@@ -588,7 +588,8 @@ fn test_stress_single_key_compromise_guardian_containment_and_drain_prevention()
     let seed_sy = 5_000_000_000i128;
     f.usdc_admin_client.mint(&f.user, &seed_sy);
     f.sy_client.deposit(&f.user, &f.user, &seed_sy);
-    f.pool_client.mint_py(&f.user, &f.user, &2_000_000_000);
+    f.pool_client
+        .mint_py(&f.user, &f.user, &2_000_000_000, &f.maturity);
     f.pool_client
         .add_liquidity(&f.user, &f.user, &1_000_000_000, &1_000_000_000, &0);
 
@@ -626,8 +627,13 @@ fn test_stress_single_key_compromise_guardian_containment_and_drain_prevention()
     );
     // f. Cannot drain pool funds via swap while paused
     assert_eq!(
-        f.pool_client
-            .try_swap_exact_sy_for_pt(&f.attacker, &f.attacker, &100_000_000, &0),
+        f.pool_client.try_swap_exact_sy_for_pt(
+            &f.attacker,
+            &f.attacker,
+            &100_000_000,
+            &0,
+            &f.maturity,
+        ),
         Err(Ok(ContractError::ContractPaused))
     );
 
@@ -763,7 +769,8 @@ fn test_stress_governance_unimpeded_during_emergency_pause() {
     f.usdc_admin_client.mint(&f.user, &seed_sy);
     f.sy_client.deposit(&f.user, &f.user, &seed_sy);
     assert_eq!(
-        f.pool_client.try_mint_py(&f.user, &f.user, &100_000_000),
+        f.pool_client
+            .try_mint_py(&f.user, &f.user, &100_000_000, &f.maturity),
         Err(Ok(ContractError::ContractPaused))
     );
 
@@ -782,7 +789,9 @@ fn test_stress_governance_unimpeded_during_emergency_pause() {
     assert!(!f.pool_client.is_paused());
 
     // 6. Normal operations resume cleanly
-    let (pt, yt) = f.pool_client.mint_py(&f.user, &f.user, &100_000_000);
+    let (pt, yt) = f
+        .pool_client
+        .mint_py(&f.user, &f.user, &100_000_000, &f.maturity);
     assert_eq!(pt, 100_000_000);
     assert_eq!(yt, 100_000_000);
 }

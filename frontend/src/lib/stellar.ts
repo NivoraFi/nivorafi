@@ -32,6 +32,7 @@ export interface LiveMarketSnapshot {
   daysToMaturity: number;
   isMatured: boolean;
   blendExchangeRate: bigint;
+  pyIndex?: bigint;
   ammExchangeRateWad: bigint;
   ptPriceInSy: number;
   ytPriceInSy: number;
@@ -117,12 +118,70 @@ function stringifySimulated(val: unknown): string | null {
   return JSON.stringify(val, (_, v) => (typeof v === "bigint" ? v.toString() : v));
 }
 
+function composeSignals(a?: AbortSignal | null, b?: AbortSignal | null): AbortSignal | undefined {
+  if (!a) return b ?? undefined;
+  if (!b) return a;
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function") {
+    return AbortSignal.any([a, b]);
+  }
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  if (a.aborted || b.aborted) {
+    controller.abort();
+  } else {
+    a.addEventListener("abort", onAbort, { once: true });
+    b.addEventListener("abort", onAbort, { once: true });
+  }
+  return controller.signal;
+}
+
+function makeAbortError(): Error {
+  const err = new Error("The operation was aborted.");
+  err.name = "AbortError";
+  return err;
+}
+
+const NATIVE_BOOTSTRAP_FETCH: typeof fetch | null =
+  typeof globalThis.fetch === "function" && globalThis.fetch.name !== "bound fetch"
+    ? globalThis.fetch
+    : (globalThis as unknown as { Bun?: { fetch?: typeof fetch } }).Bun?.fetch ?? null;
+
+function callWithAbortSignal<T>(signal: AbortSignal | undefined, invoke: () => Promise<T>): Promise<T> {
+  if (!signal) return invoke();
+  if (signal.aborted) {
+    return Promise.reject(makeAbortError());
+  }
+  const origFetch = globalThis.fetch;
+  if (typeof origFetch !== "function") {
+    return invoke();
+  }
+  const isUnstubbedHappyDomFetch =
+    typeof (globalThis as { happyDOM?: unknown }).happyDOM !== "undefined" &&
+    origFetch.name === "bound fetch" &&
+    NATIVE_BOOTSTRAP_FETCH !== null;
+  const targetFetch = isUnstubbedHappyDomFetch ? NATIVE_BOOTSTRAP_FETCH! : origFetch;
+
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const mergedSignal = composeSignals(signal, init?.signal);
+    return targetFetch(input, { ...init, signal: mergedSignal });
+  }) as typeof fetch;
+  try {
+    return invoke();
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+}
+
 async function simulateRead<T = unknown>(
   contractId: string,
   method: string,
   args: xdr.ScVal[] = [],
-  sourceAddress = STELLAR_PENDLE_CONFIG.deployer
+  sourceAddress = STELLAR_PENDLE_CONFIG.deployer,
+  signal?: AbortSignal
 ): Promise<T> {
+  if (signal?.aborted) {
+    throw makeAbortError();
+  }
   const rpcServer = getRpcServer();
   const account = new Account(sourceAddress || READ_DUMMY_SOURCE, "0");
   const contract = new Contract(contractId);
@@ -134,7 +193,7 @@ async function simulateRead<T = unknown>(
     .setTimeout(30)
     .build();
 
-  const sim = await rpcServer.simulateTransaction(tx);
+  const sim = await callWithAbortSignal(signal, () => rpcServer.simulateTransaction(tx));
   if (!rpc.Api.isSimulationSuccess(sim)) {
     const errText = "error" in sim ? String(sim.error) : "Soroban simulation failed";
     throw new Error(decodeSorobanError(errText));
@@ -145,24 +204,33 @@ async function simulateRead<T = unknown>(
   return scValToNative(sim.result.retval) as T;
 }
 
-export async function fetchMarketSnapshot(targetMarket?: MarketDefinition): Promise<LiveMarketSnapshot> {
+export async function fetchMarketSnapshot(
+  targetMarket?: MarketDefinition,
+  options?: { signal?: AbortSignal }
+): Promise<LiveMarketSnapshot> {
+  const signal = options?.signal;
+  if (signal?.aborted) {
+    throw makeAbortError();
+  }
   const poolId = targetMarket?.contracts.poolId ?? STELLAR_PENDLE_CONFIG.contracts.yield_pool.contractId;
   const syId = targetMarket?.contracts.syId ?? STELLAR_PENDLE_CONFIG.contracts.sy_blend_wrapper.contractId;
   const ptId = targetMarket?.contracts.ptId ?? STELLAR_PENDLE_CONFIG.contracts.pt_token.contractId;
   const ytId = targetMarket?.contracts.ytId ?? STELLAR_PENDLE_CONFIG.contracts.yt_token.contractId;
   const rpcServer = getRpcServer();
 
-  const [rawState, blendRateRaw, ammRateRaw, ptSupplyRaw, ytSupplyRaw, sySupplyRaw, ledger] =
+  const [rawState, blendRateRaw, ammRateRaw, ptSupplyRaw, ytSupplyRaw, sySupplyRaw, pyIndexRaw, ledger] =
     await Promise.all([
-      simulateRead<Record<string, unknown>>(poolId, "get_market_state"),
-      simulateRead<unknown>(syId, "exchange_rate").catch(() =>
-        getBlendFallbackRate(targetMarket?.asset.code)
-      ),
-      simulateRead<unknown>(poolId, "get_exchange_rate").catch(() => 1_020408163265306122n),
-      simulateRead<unknown>(ptId, "total_supply").catch(() => 0n),
-      simulateRead<unknown>(ytId, "total_supply").catch(() => 0n),
-      simulateRead<unknown>(syId, "total_supply").catch(() => 0n),
-      rpcServer.getLatestLedger(),
+      simulateRead<Record<string, unknown>>(poolId, "get_market_state", [], undefined, signal),
+      simulateRead<unknown>(syId, "exchange_rate", [], undefined, signal).catch((err) => {
+        if (signal?.aborted) throw err;
+        return getBlendFallbackRate(targetMarket?.asset.code);
+      }),
+      simulateRead<unknown>(poolId, "get_exchange_rate", [], undefined, signal).catch(() => 0n),
+      simulateRead<unknown>(ptId, "total_supply", [], undefined, signal).catch(() => 0n),
+      simulateRead<unknown>(ytId, "total_supply", [], undefined, signal).catch(() => 0n),
+      simulateRead<unknown>(syId, "total_supply", [], undefined, signal).catch(() => 0n),
+      simulateRead<unknown>(ytId, "get_py_index", [], undefined, signal).catch(() => 0n),
+      callWithAbortSignal(signal, () => rpcServer.getLatestLedger()),
     ]);
 
   const state: MarketStateRaw = {
@@ -184,8 +252,8 @@ export async function fetchMarketSnapshot(targetMarket?: MarketDefinition): Prom
   const ammRateWad = asBigInt(ammRateRaw);
   const tauWad = calculateTauWad(nowBig, state.maturity);
   const eFloat = Number(ammRateWad) / 1e18;
-  const ptPriceInSy = eFloat > 0 ? 1 / eFloat : 1;
-  const ytPriceInSy = Math.max(0, 1 - ptPriceInSy);
+  const ptPriceInSy = eFloat > 0 ? 1 / eFloat : 0;
+  const ytPriceInSy = eFloat > 0 ? Math.max(0, 1 - ptPriceInSy) : 0;
   const remainingSec = state.maturity > nowBig ? Number(state.maturity - nowBig) : 0;
 
   const totalPool = Number(state.total_pt_reserve + state.total_sy_reserve);
@@ -198,6 +266,14 @@ export async function fetchMarketSnapshot(targetMarket?: MarketDefinition): Prom
       ? blendRateBig
       : getBlendFallbackRate(targetMarket?.asset.code);
 
+  const rawPyIndex = asBigInt(pyIndexRaw);
+  const pyIndex =
+    rawPyIndex > 0n
+      ? rawPyIndex
+      : safeBlendExchangeRate > SCALAR_9
+      ? safeBlendExchangeRate
+      : SCALAR_9;
+
   return {
     state,
     latestLedger: ledger.sequence,
@@ -205,10 +281,11 @@ export async function fetchMarketSnapshot(targetMarket?: MarketDefinition): Prom
     daysToMaturity: Math.max(0, remainingSec / 86400),
     isMatured: nowBig >= state.maturity,
     blendExchangeRate: safeBlendExchangeRate,
+    pyIndex,
     ammExchangeRateWad: ammRateWad,
     ptPriceInSy,
     ytPriceInSy,
-    impliedFixedApyPct: calculateImpliedApyPct(ammRateWad, tauWad),
+    impliedFixedApyPct: ammRateWad > 0n ? calculateImpliedApyPct(ammRateWad, tauWad) : 0,
     ptTotalSupply: asBigInt(ptSupplyRaw),
     ytTotalSupply: asBigInt(ytSupplyRaw),
     syTotalSupply: asBigInt(sySupplyRaw),
@@ -218,8 +295,13 @@ export async function fetchMarketSnapshot(targetMarket?: MarketDefinition): Prom
 
 export async function fetchUserPortfolio(
   address: string,
-  targetMarket?: MarketDefinition
+  targetMarket?: MarketDefinition,
+  options?: { signal?: AbortSignal }
 ): Promise<LiveUserPortfolio> {
+  const signal = options?.signal;
+  if (signal?.aborted) {
+    throw makeAbortError();
+  }
   const poolId = targetMarket?.contracts.poolId ?? STELLAR_PENDLE_CONFIG.contracts.yield_pool.contractId;
   const syId = targetMarket?.contracts.syId ?? STELLAR_PENDLE_CONFIG.contracts.sy_blend_wrapper.contractId;
   const ptId = targetMarket?.contracts.ptId ?? STELLAR_PENDLE_CONFIG.contracts.pt_token.contractId;
@@ -237,7 +319,7 @@ export async function fetchUserPortfolio(
 
   const loadHorizonAccount = async () => {
     try {
-      const acct = await horizon.loadAccount(address);
+      const acct = await callWithAbortSignal(signal, () => horizon.loadAccount(address));
       accountExists = true;
       const xlm = acct.balances.find((b) => b.asset_type === "native");
       if (xlm) xlmBalance = xlm.balance;
@@ -265,28 +347,31 @@ export async function fetchUserPortfolio(
     }
   };
 
-  const [, syBal, ptBal, ytBal, lpBal, yieldStateRaw, bRateRaw] = await Promise.all([
+  const [, syBal, ptBal, ytBal, lpBal, yieldStateRaw, bRateRaw, pyIndexRaw] = await Promise.all([
     loadHorizonAccount(),
-    simulateRead<unknown>(syId, "balance", [addrScVal]).catch(() => 0n),
-    simulateRead<unknown>(ptId, "balance", [addrScVal]).catch(() => 0n),
-    simulateRead<unknown>(ytId, "balance", [addrScVal]).catch(() => 0n),
-    simulateRead<unknown>(poolId, "balance", [addrScVal]).catch(() => 0n),
-    simulateRead<Record<string, unknown>>(ytId, "get_user_yield_state", [addrScVal]).catch(
+    simulateRead<unknown>(syId, "balance", [addrScVal], undefined, signal).catch(() => 0n),
+    simulateRead<unknown>(ptId, "balance", [addrScVal], undefined, signal).catch(() => 0n),
+    simulateRead<unknown>(ytId, "balance", [addrScVal], undefined, signal).catch(() => 0n),
+    simulateRead<unknown>(poolId, "balance", [addrScVal], undefined, signal).catch(() => 0n),
+    simulateRead<Record<string, unknown>>(ytId, "get_user_yield_state", [addrScVal], undefined, signal).catch(
       () => ({ yt_balance: 0n, last_index: 0n, unclaimed_yield: 0n })
     ),
-    simulateRead<unknown>(syId, "exchange_rate").catch(() =>
+    simulateRead<unknown>(syId, "exchange_rate", [], undefined, signal).catch(() =>
       getBlendFallbackRate(targetMarket?.asset.code)
     ),
+    simulateRead<unknown>(ytId, "get_py_index", [], undefined, signal).catch(() => 0n),
   ]);
 
   const ytBalanceState = asBigInt(yieldStateRaw?.yt_balance ?? 0);
   const lastIndex = asBigInt(yieldStateRaw?.last_index ?? 0);
   const unclaimedYieldRaw = asBigInt(yieldStateRaw?.unclaimed_yield ?? 0);
   const bRate = asBigInt(bRateRaw);
+  const pyIndex = asBigInt(pyIndexRaw);
+  const effectiveAccrualIndex = pyIndex > 0n ? pyIndex : bRate;
 
   let accruedRaw = unclaimedYieldRaw;
-  if (lastIndex > 0n && bRate > lastIndex && ytBalanceState > 0n) {
-    accruedRaw += (ytBalanceState * (bRate - lastIndex)) / lastIndex;
+  if (lastIndex > 0n && effectiveAccrualIndex > lastIndex && ytBalanceState > 0n) {
+    accruedRaw += (ytBalanceState * (effectiveAccrualIndex - lastIndex)) / lastIndex;
   }
   const estimatedPendingYieldSy = bRate > 0n ? (accruedRaw * SCALAR_9) / bRate : 0n;
 
@@ -648,9 +733,9 @@ export async function requestFriendbotFunding(address: string): Promise<void> {
 export type ProtocolAction =
   | { type: "deposit_sy"; caller: string; amount: bigint }
   | { type: "redeem_sy"; caller: string; shares: bigint }
-  | { type: "mint_py"; caller: string; amount: bigint }
+  | { type: "mint_py"; caller: string; amount: bigint; receiver?: string; deadline?: bigint | number }
   | { type: "redeem_py"; caller: string; amount: bigint }
-  | { type: "swap"; caller: string; method: string; amountIn: bigint; minOut: bigint }
+  | { type: "swap"; caller: string; method: string; amountIn: bigint; minOut: bigint; receiver?: string; deadline?: bigint | number }
   | { type: "add_liquidity"; caller: string; ptAmount: bigint; syAmount: bigint; minLpOut: bigint }
   | { type: "remove_liquidity"; caller: string; lpAmount: bigint; minPt: bigint; minSy: bigint }
   | { type: "claim_yield"; caller: string }
@@ -664,6 +749,7 @@ export type ProtocolAction =
       targetPool: string;
       ptAmount: bigint;
       minTargetPt: bigint;
+      deadline?: bigint | number;
       factoryContractId?: string;
     }
   | {
@@ -674,12 +760,30 @@ export type ProtocolAction =
       targetPool: string;
       ptAmount: bigint;
       minNewShares: bigint;
+      deadline?: bigint | number;
+      factoryContractId?: string;
+    }
+  | {
+      type: "zap_in_pt" | "zap_in_yt" | "zap_in_lp";
+      caller: string;
+      receiver?: string;
+      pool?: string;
+      poolId?: string;
+      underlyingAmount?: bigint;
+      amount?: bigint;
+      amountIn?: bigint;
+      minOut?: bigint;
+      minPtOut?: bigint;
+      minYtOut?: bigint;
+      minLpOut?: bigint;
+      deadline?: bigint | number;
       factoryContractId?: string;
     };
 
 export function buildActionArgs(
   action: ProtocolAction,
-  targetMarket?: MarketDefinition
+  targetMarket?: MarketDefinition,
+  deadline?: bigint | number
 ): { contractId: string; method: string; args: xdr.ScVal[]; label: string } {
   const syWrapperId =
     targetMarket?.contracts.syId ?? STELLAR_PENDLE_CONFIG.contracts.sy_blend_wrapper.contractId;
@@ -691,9 +795,17 @@ export function buildActionArgs(
 
   const addr = (s: string) => Address.fromString(s).toScVal();
   const i128 = (v: bigint) => nativeToScVal(v, { type: "i128" });
+  const u64 = (v: bigint | number) => nativeToScVal(BigInt(v), { type: "u64" });
+  const resolveDeadline = (actionDeadline?: bigint | number): bigint => {
+    const picked = actionDeadline ?? deadline;
+    return picked !== undefined ? BigInt(picked) : BigInt(Math.floor(Date.now() / 1000) + 600);
+  };
 
   switch (action.type) {
     case "deposit_sy":
+      if (action.amount <= 0n) {
+        throw new Error("deposit_sy amount must be strictly greater than zero");
+      }
       return {
         contractId: syWrapperId,
         method: "deposit",
@@ -701,6 +813,9 @@ export function buildActionArgs(
         label: `Deposit ${targetMarket?.asset.code ?? "USDC"} into ${targetMarket?.sySymbol ?? "sy-bUSDC"}`,
       };
     case "redeem_sy":
+      if (action.shares <= 0n) {
+        throw new Error("redeem_sy shares must be strictly greater than zero");
+      }
       return {
         contractId: syWrapperId,
         method: "redeem",
@@ -708,13 +823,24 @@ export function buildActionArgs(
         label: `Redeem ${targetMarket?.sySymbol ?? "sy-bUSDC"} to ${targetMarket?.asset.code ?? "USDC"}`,
       };
     case "mint_py":
+      if (action.amount <= 0n) {
+        throw new Error("mint_py amount must be strictly greater than zero");
+      }
       return {
         contractId: yieldPoolId,
         method: "mint_py",
-        args: [addr(action.caller), addr(action.caller), i128(action.amount)],
+        args: [
+          addr(action.caller),
+          addr(action.receiver ?? action.caller),
+          i128(action.amount),
+          u64(resolveDeadline(action.deadline)),
+        ],
         label: "Mint PT + YT from SY",
       };
     case "redeem_py":
+      if (action.amount <= 0n) {
+        throw new Error("redeem_py amount must be strictly greater than zero");
+      }
       return {
         contractId: yieldPoolId,
         method: "redeem_py",
@@ -722,18 +848,28 @@ export function buildActionArgs(
         label: "Merge PT + YT back to SY",
       };
     case "swap": {
+      if (action.amountIn <= 0n) {
+        throw new Error("swap amountIn must be strictly greater than zero");
+      }
+      if (action.minOut < 0n) {
+        throw new Error("swap minOut cannot be negative");
+      }
       let swapLabel = "Swap";
       switch (action.method) {
         case "swap_sy_for_pt":
+        case "swap_exact_sy_for_pt":
           swapLabel = "Swap SY for PT";
           break;
         case "swap_pt_for_sy":
+        case "swap_exact_pt_for_sy":
           swapLabel = "Swap PT for SY";
           break;
         case "swap_sy_for_yt":
+        case "swap_exact_sy_for_yt":
           swapLabel = "Swap SY for YT";
           break;
         case "swap_yt_for_sy":
+        case "swap_exact_yt_for_sy":
           swapLabel = "Swap YT for SY";
           break;
         default:
@@ -745,14 +881,21 @@ export function buildActionArgs(
         method: action.method,
         args: [
           addr(action.caller),
-          addr(action.caller),
+          addr(action.receiver ?? action.caller),
           i128(action.amountIn),
           i128(action.minOut),
+          u64(resolveDeadline(action.deadline)),
         ],
         label: swapLabel,
       };
     }
     case "add_liquidity":
+      if (action.ptAmount <= 0n || action.syAmount <= 0n) {
+        throw new Error("add_liquidity ptAmount and syAmount must be strictly greater than zero");
+      }
+      if (action.minLpOut < 0n) {
+        throw new Error("add_liquidity minLpOut cannot be negative");
+      }
       return {
         contractId: yieldPoolId,
         method: "add_liquidity",
@@ -766,6 +909,12 @@ export function buildActionArgs(
         label: "Add PT + SY Liquidity",
       };
     case "remove_liquidity":
+      if (action.lpAmount <= 0n) {
+        throw new Error("remove_liquidity lpAmount must be strictly greater than zero");
+      }
+      if (action.minPt < 0n || action.minSy < 0n) {
+        throw new Error("remove_liquidity minPt and minSy cannot be negative");
+      }
       return {
         contractId: yieldPoolId,
         method: "remove_liquidity",
@@ -786,6 +935,9 @@ export function buildActionArgs(
         label: "Claim Accrued YT Yield",
       };
     case "redeem_pt_post_maturity":
+      if (action.ptAmount <= 0n) {
+        throw new Error("redeem_pt_post_maturity ptAmount must be strictly greater than zero");
+      }
       return {
         contractId: yieldPoolId,
         method: "redeem_pt_post_maturity",
@@ -793,6 +945,9 @@ export function buildActionArgs(
         label: "Redeem PT Post-Maturity",
       };
     case "redeem_pt_to_btoken":
+      if (action.ptAmount <= 0n) {
+        throw new Error("redeem_pt_to_btoken ptAmount must be strictly greater than zero");
+      }
       return {
         contractId: yieldPoolId,
         method: "redeem_pt_to_btoken",
@@ -800,6 +955,12 @@ export function buildActionArgs(
         label: `Emergency Redeem PT to b${targetMarket?.asset.code ?? "USDC"}`,
       };
     case "rollover_to_pt":
+      if (action.ptAmount <= 0n) {
+        throw new Error("rollover_to_pt ptAmount must be strictly greater than zero");
+      }
+      if (action.minTargetPt < 0n) {
+        throw new Error("rollover_to_pt minTargetPt cannot be negative");
+      }
       return {
         contractId: action.factoryContractId ?? factoryId,
         method: "rollover_to_pt",
@@ -810,10 +971,17 @@ export function buildActionArgs(
           addr(action.targetPool),
           i128(action.ptAmount),
           i128(action.minTargetPt),
+          u64(resolveDeadline(action.deadline)),
         ],
         label: "Atomic Rollover to Target PT",
       };
     case "rollover_to_py":
+      if (action.ptAmount <= 0n) {
+        throw new Error("rollover_to_py ptAmount must be strictly greater than zero");
+      }
+      if (action.minNewShares < 0n) {
+        throw new Error("rollover_to_py minNewShares cannot be negative");
+      }
       return {
         contractId: action.factoryContractId ?? factoryId,
         method: "rollover_to_py",
@@ -824,9 +992,45 @@ export function buildActionArgs(
           addr(action.targetPool),
           i128(action.ptAmount),
           i128(action.minNewShares),
+          u64(resolveDeadline(action.deadline)),
         ],
         label: "Atomic Rollover to Target LP (PT+YT)",
       };
+    case "zap_in_pt":
+    case "zap_in_yt":
+    case "zap_in_lp": {
+      const resolvedPool = action.pool ?? action.poolId ?? targetMarket?.contracts.poolId ?? "";
+      const receiverAddr = action.receiver ?? action.caller;
+      const underlyingAmt = action.underlyingAmount ?? action.amount ?? action.amountIn ?? 0n;
+      if (underlyingAmt <= 0n) {
+        throw new Error("Zap-In underlyingAmount must be strictly greater than zero");
+      }
+      const minOutAmt =
+        action.minOut ?? action.minPtOut ?? action.minYtOut ?? action.minLpOut ?? 0n;
+      if (minOutAmt < 0n) {
+        throw new Error("Zap-In minOut cannot be negative");
+      }
+      const assetCode = targetMarket?.asset.code ?? "USDC";
+      const zapLabel =
+        action.type === "zap_in_pt"
+          ? `Zap ${assetCode} into PT`
+          : action.type === "zap_in_yt"
+          ? `Zap ${assetCode} into YT`
+          : `Zap ${assetCode} into LP`;
+      return {
+        contractId: action.factoryContractId ?? factoryId,
+        method: action.type,
+        args: [
+          addr(action.caller),
+          addr(receiverAddr),
+          addr(resolvedPool),
+          i128(underlyingAmt),
+          i128(minOutAmt),
+          u64(resolveDeadline(action.deadline)),
+        ],
+        label: zapLabel,
+      };
+    }
   }
 }
 
@@ -836,7 +1040,17 @@ export function getFriendlyActionName(method: string): string {
     case "swap_pt_for_sy":
     case "swap_sy_for_yt":
     case "swap_yt_for_sy":
+    case "swap_exact_sy_for_pt":
+    case "swap_exact_pt_for_sy":
+    case "swap_exact_sy_for_yt":
+    case "swap_exact_yt_for_sy":
       return "Swap";
+    case "zap_in_pt":
+      return "Zap In PT";
+    case "zap_in_yt":
+      return "Zap In YT";
+    case "zap_in_lp":
+      return "Zap In LP";
     case "deposit":
       return "Wrap";
     case "redeem":

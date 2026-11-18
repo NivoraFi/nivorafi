@@ -58,9 +58,38 @@ pub trait BlendPoolTrait {
 pub use BlendPoolTrait as MockBlendTrait;
 pub type MockBlendClient<'a> = BlendPoolClient<'a>;
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SlenderReserveData {
+    pub liquidity_index: i128,
+    pub last_time: u64,
+    pub supply_apr: i128,
+}
+
+#[contractclient(name = "SlenderPoolClient")]
+pub trait SlenderPoolTrait {
+    fn initialize(env: Env, admin: Address, asset: Address, initial_rate: i128);
+    fn deposit(env: Env, from: Address, to: Address, asset: Address, amount: i128) -> i128;
+    fn withdraw(env: Env, from: Address, to: Address, asset: Address, amount: i128) -> i128;
+    fn get_liquidity_index(env: Env) -> i128;
+    fn set_liquidity_index(env: Env, new_rate: i128);
+    fn get_reserve(env: Env, asset: Address) -> SlenderReserveData;
+    fn accrue(env: Env) -> i128;
+    fn set_annual_rate(env: Env, new_rate: i128);
+    fn get_annual_rate(env: Env) -> i128;
+    fn s_token(env: Env) -> Address;
+}
+
 #[contractclient(name = "StandardizedYieldClient")]
 pub trait StandardizedYieldTrait {
     fn initialize(env: Env, admin: Address, underlying_asset: Address, blend_pool: Address);
+    fn initialize_from_factory(
+        env: Env,
+        deployer: Address,
+        admin: Address,
+        underlying_asset: Address,
+        blend_pool: Address,
+    );
     fn deposit(env: Env, caller: Address, receiver: Address, amount: i128) -> i128;
     fn redeem(env: Env, caller: Address, receiver: Address, shares: i128) -> i128;
     fn redeem_to_btoken(env: Env, caller: Address, receiver: Address, shares: i128) -> i128;
@@ -96,9 +125,20 @@ pub trait StandardizedYieldTrait {
 }
 
 #[contractclient(name = "PrivilegedTokenClient")]
+#[allow(clippy::too_many_arguments)]
 pub trait PrivilegedTokenTrait {
     fn initialize(
         env: Env,
+        admin: Address,
+        market: Address,
+        name: String,
+        symbol: String,
+        decimals: u32,
+        maturity: u64,
+    );
+    fn initialize_from_factory(
+        env: Env,
+        deployer: Address,
         admin: Address,
         market: Address,
         name: String,
@@ -152,10 +192,24 @@ pub trait YieldTokenTrait {
         decimals: u32,
         maturity: u64,
     );
+    fn initialize_from_factory(
+        env: Env,
+        deployer: Address,
+        admin: Address,
+        market: Address,
+        sy_contract: Address,
+        name: String,
+        symbol: String,
+        decimals: u32,
+        maturity: u64,
+    );
     fn mint(env: Env, to: Address, amount: i128);
     fn burn(env: Env, from: Address, amount: i128);
     fn total_supply(env: Env) -> i128;
     fn claim_user_yield(env: Env, user: Address) -> i128;
+    fn settle_maturity(env: Env, maturity_index: i128) -> i128;
+    fn get_py_index(env: Env) -> i128;
+    fn get_total_unclaimed_yield(env: Env) -> i128;
     fn get_user_yield_state(env: Env, user: Address) -> UserYieldState;
     fn balance(env: Env, id: Address) -> i128;
     fn transfer(env: Env, from: Address, to: Address, amount: i128);
@@ -193,7 +247,24 @@ pub trait YieldMarketTrait {
         scalar_root: i128,
         initial_anchor: i128,
     );
-    fn mint_py(env: Env, caller: Address, receiver: Address, amount: i128) -> (i128, i128);
+    fn initialize_from_factory(
+        env: Env,
+        deployer: Address,
+        admin: Address,
+        sy: Address,
+        pt: Address,
+        yt: Address,
+        maturity: u64,
+        scalar_root: i128,
+        initial_anchor: i128,
+    );
+    fn mint_py(
+        env: Env,
+        caller: Address,
+        receiver: Address,
+        amount: i128,
+        deadline: u64,
+    ) -> (i128, i128);
     fn redeem_py(env: Env, caller: Address, receiver: Address, amount: i128) -> i128;
     fn redeem_pt_post_maturity(
         env: Env,
@@ -215,6 +286,7 @@ pub trait YieldMarketTrait {
         receiver: Address,
         pt_in: i128,
         min_sy_out: i128,
+        deadline: u64,
     ) -> (i128, i128);
     fn swap_exact_sy_for_pt(
         env: Env,
@@ -222,6 +294,7 @@ pub trait YieldMarketTrait {
         receiver: Address,
         sy_in: i128,
         min_pt_out: i128,
+        deadline: u64,
     ) -> (i128, i128);
     fn swap_exact_sy_for_yt(
         env: Env,
@@ -229,6 +302,7 @@ pub trait YieldMarketTrait {
         receiver: Address,
         sy_in: i128,
         min_yt_out: i128,
+        deadline: u64,
     ) -> (i128, i128);
     fn swap_exact_yt_for_sy(
         env: Env,
@@ -236,6 +310,7 @@ pub trait YieldMarketTrait {
         receiver: Address,
         yt_in: i128,
         min_sy_out: i128,
+        deadline: u64,
     ) -> (i128, i128);
     fn add_liquidity(
         env: Env,
@@ -255,6 +330,7 @@ pub trait YieldMarketTrait {
     ) -> (i128, i128);
     fn get_exchange_rate(env: Env) -> i128;
     fn get_reserves(env: Env) -> (i128, i128);
+    fn get_py_reserves(env: Env) -> (i128, i128);
 
     // Enterprise Governance & Pause
     fn propose_admin(env: Env, caller: Address, new_admin: Address);
@@ -337,6 +413,13 @@ pub trait MarketFactoryTrait {
         sy: Address,
     ) -> Result<(), ContractError>;
     fn get_sy_for_asset(env: Env, asset: Address) -> Option<Address>;
+    fn set_creator_whitelist(
+        env: Env,
+        caller: Address,
+        creator: Address,
+        allowed: bool,
+    ) -> Result<(), ContractError>;
+    fn is_whitelisted_creator(env: Env, creator: Address) -> bool;
 
     // === Market Creation & Registration ===
     fn create_market(
@@ -381,6 +464,7 @@ pub trait MarketFactoryTrait {
         target_pool: Address,
         pt_amount: i128,
         min_target_pt: i128,
+        deadline: u64,
     ) -> Result<(i128, i128), ContractError>;
     fn rollover_to_py(
         env: Env,
@@ -390,6 +474,36 @@ pub trait MarketFactoryTrait {
         target_pool: Address,
         pt_amount: i128,
         min_new_shares: i128,
+        deadline: u64,
+    ) -> Result<(i128, i128), ContractError>;
+
+    // === Single-Tx Zap-In Routers ===
+    fn zap_in_pt(
+        env: Env,
+        caller: Address,
+        receiver: Address,
+        pool: Address,
+        underlying_amount: i128,
+        min_pt_out: i128,
+        deadline: u64,
+    ) -> Result<i128, ContractError>;
+    fn zap_in_yt(
+        env: Env,
+        caller: Address,
+        receiver: Address,
+        pool: Address,
+        underlying_amount: i128,
+        min_yt_out: i128,
+        deadline: u64,
+    ) -> Result<i128, ContractError>;
+    fn zap_in_lp(
+        env: Env,
+        caller: Address,
+        receiver: Address,
+        pool: Address,
+        underlying_amount: i128,
+        min_lp_out: i128,
+        deadline: u64,
     ) -> Result<(i128, i128), ContractError>;
 
     // === Enterprise Governance & Pause Guardian ===

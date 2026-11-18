@@ -128,6 +128,7 @@ describe("Milestone 4: Pendle V2 Market Explorer & Global Navigation Suite", () 
       "xlm-90d": { impliedApyPct: 12.50, tvlUsd: 40000 },
       "usdc-180d": { impliedApyPct: 10.15, tvlUsd: 35000 },
       "usdc-matured": { impliedApyPct: 0.00, tvlUsd: 5000 },
+      "usdc-slender-90d": { impliedApyPct: 9.10, tvlUsd: 30000 },
       "eurc-90d": { impliedApyPct: 7.80, tvlUsd: 20000 },
     };
 

@@ -129,7 +129,9 @@ describe("E2E Test Suite — Tier 4: Real-World Application Scenarios", () => {
     });
 
     it("Phase 3: User inspects Bento yield cards observing guaranteed 8.45% Fixed APY", () => {
-      const snapshot = createMockSnapshot(currentActiveMarket);
+      const snapshot = createMockSnapshot(currentActiveMarket, {
+        nowSeconds: currentActiveMarket.maturity - 90 * 86400,
+      });
       expect(snapshot.impliedFixedApyPct).toBe(8.45);
       expect(snapshot.daysToMaturity).toBeGreaterThan(80);
       expect(snapshot.ptPriceInSy).toBeLessThan(1.0);
@@ -167,7 +169,7 @@ describe("E2E Test Suite — Tier 4: Real-World Application Scenarios", () => {
 
       expect(action.contractId).toBe(currentActiveMarket.contracts.poolId);
       expect(action.method).toBe("swap_exact_sy_for_pt");
-      expect(action.args).toHaveLength(4);
+      expect(action.args).toHaveLength(5);
 
       // Verify simulated balance update
       const initialPortfolio = createMockPortfolio(currentActiveMarket, {
@@ -219,7 +221,7 @@ describe("E2E Test Suite — Tier 4: Real-World Application Scenarios", () => {
 
       expect(action.contractId).toBe(currentActiveMarket.contracts.poolId);
       expect(action.method).toBe("mint_py");
-      expect(action.args).toHaveLength(3); // receiver_pt, receiver_yt, amount
+      expect(action.args).toHaveLength(4); // receiver_pt, receiver_yt, amount, deadline
     });
 
     it("Phase 3: User provides dual-sided PT + SY liquidity via add_liquidity", () => {
@@ -376,7 +378,7 @@ describe("E2E Test Suite — Tier 4: Real-World Application Scenarios", () => {
       );
 
       expect(action.method).toBe("rollover_to_pt");
-      expect(action.args).toHaveLength(6);
+      expect(action.args).toHaveLength(7);
     });
 
     it("Phase 5: User verifies rollover replaces expired tenor with active 90D tenor without intermediate gas friction", () => {

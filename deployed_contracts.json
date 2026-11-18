@@ -324,6 +324,34 @@
       },
       "isRegisteredOnChain": true,
       "isVerifiedTestnet": true
+    },
+    {
+      "id": "usdc-slender-90d",
+      "factoryId": 5,
+      "name": "Pendle sUSDC PT 90D (Slender)",
+      "symbol": "PT-sUSDC-90D",
+      "sySymbol": "sy-sUSDC",
+      "tenor": "90D",
+      "maturity": 1801909057,
+      "maturityIso": "2027-02-06T10:17:37Z",
+      "decimals": 7,
+      "scalarRoot": "8000000000000000000",
+      "initialAnchor": "1000000000000000000",
+      "asset": {
+        "code": "USDC",
+        "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        "sacContractId": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
+      },
+      "contracts": {
+        "pool": "CACPNCMRPCYXT2IFNAIYY7DVTZARI2HFKIFMX2LBUTJ3YU6Z6QVBQDC5",
+        "sy": "CA5Q7BXAPRO3XULUEDTFVFZU2ZU2N7Z6CLZNQW7WDDKVJV6776DGHPCJ",
+        "pt": "CBNRSIS3ACCYL7ORHU6XP3YGMEBLZAJN3HOWSJIFAYBH7I7VIZUGSIK5",
+        "yt": "CCKMWQO2HNOP3L6CZU73KNEZLN3XVZ7EWAMCA77CAYY5FW3XZWO6DPCA",
+        "blendPool": "CBZAIQZCWK6AWE3UHLC7EZUSDPBOS767LA5TAASK4SSLZRNAYHKPBYRS",
+        "slenderPool": "CBZAIQZCWK6AWE3UHLC7EZUSDPBOS767LA5TAASK4SSLZRNAYHKPBYRS"
+      },
+      "isRegisteredOnChain": false,
+      "isVerifiedTestnet": false
     }
   ]
 }

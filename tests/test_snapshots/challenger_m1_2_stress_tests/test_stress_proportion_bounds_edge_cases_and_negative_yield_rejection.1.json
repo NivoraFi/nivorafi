@@ -292,6 +292,9 @@
                 },
                 {
                   "i128": "1500000000"
+                },
+                {
+                  "u64": "16552000"
                 }
               ]
             }
@@ -478,6 +481,9 @@
                 },
                 {
                   "i128": "5000000000"
+                },
+                {
+                  "u64": "16552000"
                 }
               ]
             }
@@ -528,6 +534,9 @@
                 },
                 {
                   "i128": "0"
+                },
+                {
+                  "u64": "16552000"
                 }
               ]
             }
@@ -1154,7 +1163,7 @@
                         ]
                       },
                       "val": {
-                        "string": "Standardized Yield Blend USDC"
+                        "string": "Standardized Yield Blend aaa"
                       }
                     },
                     {
@@ -1166,7 +1175,7 @@
                         ]
                       },
                       "val": {
-                        "string": "sy-bUSDC"
+                        "string": "sy-baaa"
                       }
                     },
                     {
@@ -1349,7 +1358,7 @@
                         ]
                       },
                       "val": {
-                        "string": "Pendle LP Token"
+                        "string": "NivoraFi LP aaa"
                       }
                     },
                     {
@@ -1374,6 +1383,18 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "PtPrincipalReserve"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "6500000000"
                       }
                     },
                     {
@@ -1409,7 +1430,7 @@
                         ]
                       },
                       "val": {
-                        "string": "LP-PT-SY"
+                        "string": "LP-aaa"
                       }
                     },
                     {
@@ -1433,7 +1454,7 @@
                         ]
                       },
                       "val": {
-                        "i128": "1400242882"
+                        "i128": "1400041353"
                       }
                     },
                     {
@@ -1459,9 +1480,48 @@
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
                       }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "YtYieldReserve"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
+                      }
                     }
                   ]
                 }
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 3110500
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "Balance"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "i128": "201529"
               }
             }
           },
@@ -1515,7 +1575,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "1400242882"
+                "i128": "1400041353"
               }
             }
           },
@@ -1871,6 +1931,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "GlobalAccruedYield"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "0"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "Initialized"
                           }
                         ]
@@ -1889,6 +1961,18 @@
                       },
                       "val": {
                         "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "LastKnownIndex"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "1000000000"
                       }
                     },
                     {
@@ -1961,6 +2045,18 @@
                       },
                       "val": {
                         "i128": "6500000000"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "TotalYieldWeight"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "i128": "6500000000000000000"
                       }
                     }
                   ]

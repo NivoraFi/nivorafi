@@ -458,7 +458,7 @@ describe("Empirical Challenger M2 R2: Rollover Quote & Execution Verification Su
       expect(built.method).toBe("rollover_to_pt");
       expect(built.label).toBe("Atomic Rollover to Target PT");
       expect(built.contractId).toBe(STELLAR_PENDLE_CONFIG.market_factory.contractId);
-      expect(built.args).toHaveLength(6);
+      expect(built.args).toHaveLength(7);
 
       // Verify deserialized parameters
       const callerDecoded = Address.fromScVal(built.args[0]).toString();
@@ -494,7 +494,7 @@ describe("Empirical Challenger M2 R2: Rollover Quote & Execution Verification Su
       const built = buildActionArgs(action, usdcMatured);
       expect(built.method).toBe("rollover_to_py");
       expect(built.label).toBe("Atomic Rollover to Target LP (PT+YT)");
-      expect(built.args).toHaveLength(6);
+      expect(built.args).toHaveLength(7);
 
       const ptAmountDecoded = scValToNative(built.args[4]);
       const minSharesDecoded = scValToNative(built.args[5]);

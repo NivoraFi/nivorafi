@@ -231,7 +231,7 @@ export class StellarPendleAgentClient {
       }
     }
 
-    const [syBalRaw, ptBalRaw, ytBalRaw, lpBalRaw, yieldStateRaw, bRateRaw] = await Promise.all([
+    const [syBalRaw, ptBalRaw, ytBalRaw, lpBalRaw, yieldStateRaw, bRateRaw, pyIndexRaw] = await Promise.all([
       this.simulateRead<unknown>(sy_blend_wrapper.contractId, "balance", [addrArg]),
       this.simulateRead<unknown>(pt_token.contractId, "balance", [addrArg]),
       this.simulateRead<unknown>(yt_token.contractId, "balance", [addrArg]),
@@ -240,6 +240,7 @@ export class StellarPendleAgentClient {
         addrArg,
       ]),
       this.simulateRead<unknown>(sy_blend_wrapper.contractId, "exchange_rate"),
+      this.simulateRead<unknown>(yt_token.contractId, "get_py_index").catch(() => 0n),
     ]);
 
     const yieldState: UserYieldStateOnChain = {
@@ -248,9 +249,17 @@ export class StellarPendleAgentClient {
       unclaimed_yield: asBigInt(yieldStateRaw?.unclaimed_yield ?? 0),
     };
     const bRate = asBigInt(bRateRaw);
+    const pyIndex = pyIndexRaw !== undefined && pyIndexRaw !== null ? asBigInt(pyIndexRaw) : 0n;
+    const effectiveAccrualIndex = pyIndex > 0n ? pyIndex : bRate;
     let pendingRaw = yieldState.unclaimed_yield;
-    if (yieldState.last_index > 0n && bRate > yieldState.last_index && yieldState.yt_balance > 0n) {
-      pendingRaw += (yieldState.yt_balance * (bRate - yieldState.last_index)) / yieldState.last_index;
+    if (
+      yieldState.last_index > 0n &&
+      effectiveAccrualIndex > yieldState.last_index &&
+      yieldState.yt_balance > 0n
+    ) {
+      pendingRaw +=
+        (yieldState.yt_balance * (effectiveAccrualIndex - yieldState.last_index)) /
+        yieldState.last_index;
     }
     const pendingSy = bRate > 0n ? (pendingRaw * SCALAR_9) / bRate : 0n;
 
@@ -269,14 +278,40 @@ export class StellarPendleAgentClient {
     };
   }
 
+  private async fetchPyIndexSafe(): Promise<bigint> {
+    const { yt_token, sy_blend_wrapper } = this.manifest.contracts;
+    try {
+      const rawIdx = await this.simulateRead<unknown>(yt_token.contractId, "get_py_index");
+      if (rawIdx !== undefined && rawIdx !== null) {
+        const val = asBigInt(rawIdx);
+        if (val > 0n) return val;
+      }
+    } catch {
+      // Fallback to SY exchange_rate when get_py_index is unavailable (e.g. RPC shim)
+    }
+    try {
+      const rawRate = await this.simulateRead<unknown>(sy_blend_wrapper.contractId, "exchange_rate");
+      if (rawRate !== undefined && rawRate !== null) {
+        const val = asBigInt(rawRate);
+        if (val > 0n) return val;
+      }
+    } catch {
+      // Fallback to SCALAR_9
+    }
+    return SCALAR_9;
+  }
+
   async quoteAction(
     direction: SwapDirection,
     amountInStroops: bigint,
     slippageBps = 50
   ): Promise<SwapQuoteResult> {
-    const state = await this.getRawMarketState();
+    const [state, pyIndex] = await Promise.all([
+      this.getRawMarketState(),
+      this.fetchPyIndexSafe(),
+    ]);
     const nowSec = BigInt(Math.floor(Date.now() / 1000));
-    return quoteSwap(state, direction, amountInStroops, nowSec, slippageBps);
+    return quoteSwap(state, direction, amountInStroops, nowSec, slippageBps, pyIndex);
   }
 
   buildDepositSyTx(sourceAddress: string, amountStroops: bigint, receiver = sourceAddress) {
@@ -307,7 +342,13 @@ export class StellarPendleAgentClient {
     );
   }
 
-  buildMintPyTx(sourceAddress: string, syAmountStroops: bigint, receiver = sourceAddress) {
+  buildMintPyTx(
+    sourceAddress: string,
+    syAmountStroops: bigint,
+    receiver = sourceAddress,
+    deadline?: bigint
+  ) {
+    const resolvedDeadline = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 600);
     return this.buildPreparedTx(
       sourceAddress,
       this.manifest.contracts.yield_pool.contractId,
@@ -316,6 +357,7 @@ export class StellarPendleAgentClient {
         Address.fromString(sourceAddress).toScVal(),
         Address.fromString(receiver).toScVal(),
         nativeToScVal(syAmountStroops, { type: "i128" }),
+        nativeToScVal(resolvedDeadline, { type: "u64" }),
       ],
       "mint_py"
     );
@@ -340,8 +382,10 @@ export class StellarPendleAgentClient {
     direction: SwapDirection,
     amountInStroops: bigint,
     minOutStroops: bigint,
-    receiver = sourceAddress
+    receiver = sourceAddress,
+    deadline?: bigint
   ) {
+    const resolvedDeadline = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 600);
     const methodMap: Record<SwapDirection, string> = {
       pt_for_sy: "swap_exact_pt_for_sy",
       sy_for_pt: "swap_exact_sy_for_pt",
@@ -357,6 +401,7 @@ export class StellarPendleAgentClient {
         Address.fromString(receiver).toScVal(),
         nativeToScVal(amountInStroops, { type: "i128" }),
         nativeToScVal(minOutStroops, { type: "i128" }),
+        nativeToScVal(resolvedDeadline, { type: "u64" }),
       ],
       direction
     );

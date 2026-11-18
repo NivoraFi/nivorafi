@@ -16,7 +16,7 @@ import {
 describe("Milestone M5 — Feature #17: Multi-Market Catalog & Selector Test Suite", () => {
   describe("1. Multi-Market Catalog & Structural Validity", () => {
     it("contains preset markets covering 30D and 90D tenors and USDC and XLM assets", () => {
-      expect(PRESET_MARKETS.length).toBe(4);
+      expect(PRESET_MARKETS.length).toBe(5);
 
       const tenors = new Set(PRESET_MARKETS.map((m) => m.tenor));
       expect(tenors.has("30D")).toBe(true);

@@ -45,7 +45,7 @@ describe("Windows Indexer API Integration & Graceful Fallback Suite", () => {
     it("verifies .env.example declares NEXT_PUBLIC_INDEXER_API_URL=/api/indexer, INDEXER_INTERNAL_URL, and INDEXER_API_SECRET without trycloudflare", () => {
       const envExample = readFileSync(join(process.cwd(), ".env.example"), "utf-8");
       expect(envExample).toContain('NEXT_PUBLIC_INDEXER_API_URL="/api/indexer"');
-      expect(envExample).toContain('INDEXER_INTERNAL_URL="http://127.0.0.1:3001"');
+      expect(envExample).toContain('INDEXER_INTERNAL_URL="http://127.0.0.1:8765"');
       expect(envExample).toContain('INDEXER_API_SECRET="replace_with_32_byte_hex_secret"');
       expect(envExample).not.toContain("trycloudflare.com");
     });
@@ -452,7 +452,7 @@ describe("Windows Indexer API Integration & Graceful Fallback Suite", () => {
     it("forwards allowed path to INDEXER_INTERNAL_URL with x-indexer-secret header and returns 200", async () => {
       const origInternalUrl = process.env.INDEXER_INTERNAL_URL;
       const origSecret = process.env.INDEXER_API_SECRET;
-      process.env.INDEXER_INTERNAL_URL = "http://internal-indexer:3001";
+      process.env.INDEXER_INTERNAL_URL = "http://internal-indexer:8765";
       process.env.INDEXER_API_SECRET = "secure-secret-token";
 
       let capturedUrl = "";
@@ -472,7 +472,7 @@ describe("Windows Indexer API Integration & Graceful Fallback Suite", () => {
         const req = new NextRequest("http://localhost:3000/api/indexer/health");
         const res = await GET(req, { params: Promise.resolve({ path: ["health"] }) });
         expect(res.status).toBe(200);
-        expect(capturedUrl).toBe("http://internal-indexer:3001/health");
+        expect(capturedUrl).toBe("http://internal-indexer:8765/health");
         expect(capturedHeaders["x-indexer-secret"]).toBe("secure-secret-token");
         expect(capturedHeaders["Accept"]).toBe("application/json");
 
@@ -488,12 +488,12 @@ describe("Windows Indexer API Integration & Graceful Fallback Suite", () => {
 
     it("handles upstream failure with 502 JSON without leaking INDEXER_INTERNAL_URL", async () => {
       const origInternalUrl = process.env.INDEXER_INTERNAL_URL;
-      process.env.INDEXER_INTERNAL_URL = "http://private-upstream-secret.network:3001";
+      process.env.INDEXER_INTERNAL_URL = "http://private-upstream-secret.network:8765";
 
       const originalFetch = globalThis.fetch;
       try {
         globalThis.fetch = (async () => {
-          throw new Error("Failed to connect to private-upstream-secret.network:3001");
+          throw new Error("Failed to connect to private-upstream-secret.network:8765");
         }) as typeof fetch;
 
         const req = new NextRequest("http://localhost:3000/api/indexer/health");
@@ -502,7 +502,7 @@ describe("Windows Indexer API Integration & Graceful Fallback Suite", () => {
 
         const rawText = await res.text();
         expect(rawText).not.toContain("private-upstream-secret.network");
-        expect(rawText).not.toContain("3001");
+        expect(rawText).not.toContain("8765");
 
         const data = JSON.parse(rawText);
         expect(data.success).toBe(false);

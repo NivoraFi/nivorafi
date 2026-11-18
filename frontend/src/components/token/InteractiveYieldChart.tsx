@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { LiveMarketSnapshot } from "@/lib/stellar";
 import { MarketAnalyticsData } from "@/components/trading/AnalyticsCard.types";
-import { MarketDefinition } from "@/lib/markets";
+import { getMarketUnderlyingApy, MarketDefinition } from "@/lib/markets";
 
 // ============================================================================
 // Types & Interfaces
@@ -29,6 +29,7 @@ export interface InteractiveYieldChartProps {
   initialMode?: ChartMode;
   initialTimeframe?: ChartTimeframe;
   loading?: boolean;
+  error?: string | null;
   className?: string;
   height?: number;
   onModeChange?: (mode: ChartMode) => void;
@@ -82,6 +83,7 @@ export function InteractiveYieldChart({
   initialMode = "yield",
   initialTimeframe = "1W",
   loading = false,
+  error = null,
   className = "",
   height = 260,
   onModeChange,
@@ -120,7 +122,7 @@ export function InteractiveYieldChart({
     lastValidSeriesRef.current = [];
   }
 
-  // 4. Construct Unified Time-Series
+  // 4. Construct Unified Time-Series (honest data only — zero synthetic curves)
   const rawSeries = useMemo<ChartDataPoint[]>(() => {
     if (customData && customData.length > 0) {
       return customData;
@@ -130,27 +132,24 @@ export function InteractiveYieldChart({
       return lastValidSeriesRef.current;
     }
 
-    const now = Math.floor(Date.now() / 1000);
-    const maturity = snapshot?.state?.maturity
-      ? Number(snapshot.state.maturity)
-      : market?.maturity ?? now + 90 * 86400;
-
-    const currentImplied = analytics?.impliedApyPct ?? (snapshot?.daysToMaturity && snapshot.daysToMaturity > 0 ? 8.45 : 0);
-    const currentUnderlying = 5.40; // Default Blend Benchmark
-    const currentPtPrice = snapshot?.ptPriceInSy ?? 0.98;
-    const currentYtPrice = Math.max(0, 1.0 - currentPtPrice);
-
     const apyHist = analytics?.apyHistory;
-
     if (apyHist && apyHist.length > 0) {
+      const now = Math.floor(Date.now() / 1000);
+      const maturity = snapshot?.state?.maturity
+        ? Number(snapshot.state.maturity)
+        : market?.maturity ?? now + 90 * 86400;
+      const underlyingBenchmark = market ? getMarketUnderlyingApy(market) : 0;
+
       return apyHist.map((pt) => {
         const tauYears = Math.max(0, (maturity - pt.timestamp) / 31536000);
-        const ptPrice = pt.ptPriceInSy ?? (tauYears > 0 ? Number((1 / Math.pow(1 + pt.apyPct / 100, tauYears)).toFixed(4)) : 1.0);
+        const ptPrice =
+          pt.ptPriceInSy ??
+          (tauYears > 0 ? Number((1 / Math.pow(1 + pt.apyPct / 100, tauYears)).toFixed(4)) : 1.0);
         const ytPrice = Number(Math.max(0, 1.0 - ptPrice).toFixed(4));
         return {
           timestamp: pt.timestamp,
           impliedApy: Number(pt.apyPct.toFixed(2)),
-          underlyingApy: currentUnderlying,
+          underlyingApy: underlyingBenchmark,
           ptPrice,
           ytPrice,
           ledger: pt.ledger,
@@ -158,60 +157,14 @@ export function InteractiveYieldChart({
       });
     }
 
-    // Graceful Synthetic Baseline if no events indexed yet
-    if (lastValidSeriesRef.current.length > 0) {
-      return lastValidSeriesRef.current;
-    }
+    return [];
+  }, [customData, loading, analytics, snapshot, market]);
 
-    const sampleCount = 24;
-    const duration = timeframe === "1D" ? 86400 : timeframe === "1W" ? 7 * 86400 : timeframe === "1M" ? 30 * 86400 : 90 * 86400;
-    const step = duration / (sampleCount - 1);
-    const startTime = now - duration;
-    const isMaturedMarket = (snapshot?.isMatured ?? false) || now >= maturity || currentImplied <= 0;
-    const ampScale = timeframe === "1D" ? 0.38 : timeframe === "1W" ? 0.65 : timeframe === "1M" ? 0.95 : 1.25;
-
-    const synthetic: ChartDataPoint[] = [];
-    for (let i = 0; i < sampleCount; i++) {
-      const t = startTime + i * step;
-      const isLast = i === sampleCount - 1;
-      const progress = i / (sampleCount - 1);
-      // Smooth deterministic harmonic wave vanishing at progress === 1 (exact live anchor at latest point)
-      const envelope = 1 - progress;
-      const waveImplied = isLast || isMaturedMarket
-        ? 0
-        : (Math.sin(progress * Math.PI * 3.2 + 0.6) * 0.62 + Math.cos(progress * Math.PI * 1.7) * 0.38) * ampScale * envelope;
-      const waveUnderlying = isLast || isMaturedMarket
-        ? 0
-        : (Math.sin(progress * Math.PI * 2.4 + 1.5) * 0.55 + Math.cos(progress * Math.PI * 1.3 + 0.4) * 0.45) * (ampScale * 0.45) * envelope;
-
-      const pointImplied = Number(Math.max(0, currentImplied + waveImplied).toFixed(2));
-      const pointUnderlying = Number(Math.max(0, currentUnderlying + waveUnderlying).toFixed(2));
-
-      const tau = Math.max(0, (maturity - t) / 31536000);
-      const ptP = isLast
-        ? Number(currentPtPrice.toFixed(4))
-        : tau > 0 && !isMaturedMarket
-        ? Number((1 / Math.pow(1 + pointImplied / 100, tau)).toFixed(4))
-        : 1.0;
-      const ytP = isLast
-        ? Number(currentYtPrice.toFixed(4))
-        : Number(Math.max(0, 1.0 - ptP).toFixed(4));
-
-      synthetic.push({
-        timestamp: Math.floor(t),
-        impliedApy: pointImplied,
-        underlyingApy: pointUnderlying,
-        ptPrice: ptP,
-        ytPrice: ytP,
-      });
-    }
-
-    return synthetic;
-  }, [customData, loading, analytics, snapshot, market, timeframe]);
-
-  // Update Cache
+  // Update or clear cache so empty timeframes never display stale points
   if (rawSeries.length > 0) {
     lastValidSeriesRef.current = rawSeries;
+  } else if (!loading) {
+    lastValidSeriesRef.current = [];
   }
   const effectiveSeries = rawSeries.length > 0 ? rawSeries : lastValidSeriesRef.current;
 
@@ -400,6 +353,11 @@ export function InteractiveYieldChart({
   const spreadVal = latestPt ? latestPt.impliedApy - latestPt.underlyingApy : 0;
   const discountVal = latestPt ? (1.0 - latestPt.ptPrice) * 100 : 0;
 
+  const spreadStr = latestPt
+    ? (spreadVal >= 0 ? `+${spreadVal.toFixed(2)}%` : `${spreadVal.toFixed(2)}%`)
+    : "--";
+  const discountStr = latestPt ? `${discountVal.toFixed(2)}%` : "--";
+
   return (
     <div className={`glass-panel double-bezel rounded-2xl p-4 sm:p-5 shadow-glass-elevated flex flex-col justify-between ${className}`}>
       {/* 1. Header Bar: Title, Mode Toggle, Timeframe Tabs */}
@@ -418,7 +376,7 @@ export function InteractiveYieldChart({
                 <span className="text-sm sm:text-base font-semibold text-positive tabular-mono">{currentUnderlyingStr}</span>
               </div>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-accent-soft/30 text-accent border border-accent/20">
-                <span className="font-mono tabular-mono">{spreadVal >= 0 ? `+${spreadVal.toFixed(2)}%` : `${spreadVal.toFixed(2)}%`}</span>
+                <span className="font-mono tabular-mono">{spreadStr}</span>
                 <span>Spread</span>
               </span>
             </>
@@ -434,7 +392,7 @@ export function InteractiveYieldChart({
                 <span className="text-sm sm:text-base font-semibold text-accent tabular-mono">{currentYtPriceStr}</span>
               </div>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-positive-soft/30 text-positive border border-positive/20">
-                <span className="font-mono tabular-mono">{discountVal.toFixed(2)}%</span>
+                <span className="font-mono tabular-mono">{discountStr}</span>
                 <span>Discount</span>
               </span>
             </>
@@ -491,12 +449,30 @@ export function InteractiveYieldChart({
 
       {/* 2. Interactive SVG Stage */}
       <div className="relative w-full select-none my-2" style={{ height }}>
-        {/* Loading Spinner Shimmer */}
+        {/* Loading / Error / Empty Overlays */}
         {loading && points.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center bg-surface-muted/50 rounded-xl backdrop-blur-sm z-10">
             <div className="flex items-center gap-2 text-xs text-ink-secondary">
               <div className="h-4 w-4 animate-spin motion-reduce:animate-none rounded-full border-2 border-accent border-t-transparent" />
               <span>Syncing chart events…</span>
+            </div>
+          </div>
+        )}
+        {!loading && error && points.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center bg-surface-muted/40 rounded-xl backdrop-blur-sm z-10 px-4 text-center">
+            <div className="space-y-1 max-w-sm">
+              <p className="text-xs font-semibold text-danger">Chart data unavailable</p>
+              <p className="text-[11px] text-ink-muted">{error}</p>
+            </div>
+          </div>
+        )}
+        {!loading && !error && points.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center bg-surface-muted/30 rounded-xl z-10 px-4 text-center">
+            <div className="space-y-1 max-w-sm">
+              <p className="text-xs font-semibold text-ink-secondary">No indexed swap events yet</p>
+              <p className="text-[11px] text-ink-muted">
+                Yield and price curves appear once swaps settle for this market.
+              </p>
             </div>
           </div>
         )}

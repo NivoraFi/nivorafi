@@ -34,6 +34,30 @@ export function wadDiv(a: bigint, b: bigint): bigint {
   return res;
 }
 
+export function wadDivCeil(a: bigint, b: bigint): bigint {
+  if (b === 0n) {
+    throw new Error("MathError::DivisionByZero");
+  }
+  if (a === 0n) return 0n;
+  const sign = (a < 0n) !== (b < 0n);
+  const ua = a < 0n ? -a : a;
+  const ub = b < 0n ? -b : b;
+  const num = ua * WAD;
+  const q = num / ub;
+  const rem = num % ub;
+  if (sign) {
+    if (q > I128_MAX) {
+      throw new Error("MathError::Overflow");
+    }
+    return q === 0n ? 0n : -q;
+  }
+  const res = rem > 0n ? q + 1n : q;
+  if (res > I128_MAX) {
+    throw new Error("MathError::Overflow");
+  }
+  return res;
+}
+
 export function lnWad(x: bigint): bigint {
   if (x <= 0n) {
     throw new Error("MathError::NegativeLogarithmInput");
@@ -166,15 +190,50 @@ export function applySlippage(amount: bigint, slippageBps: number): bigint {
   return minOut > 0n ? minOut : 1n;
 }
 
+export function syToAsset(pyIndex: bigint, syAmount: bigint): bigint {
+  if (pyIndex <= 0n) throw new Error("ContractError::InvalidRate");
+  if (syAmount === 0n) return 0n;
+  return (syAmount * pyIndex) / SCALAR_9;
+}
+
+export function assetToSy(pyIndex: bigint, assetAmount: bigint): bigint {
+  if (pyIndex <= 0n) throw new Error("ContractError::InvalidRate");
+  if (assetAmount === 0n) return 0n;
+  return (assetAmount * SCALAR_9) / pyIndex;
+}
+
+export function assetToSyCeil(pyIndex: bigint, assetAmount: bigint): bigint {
+  if (pyIndex <= 0n) throw new Error("ContractError::InvalidRate");
+  if (assetAmount === 0n) return 0n;
+  return (assetAmount * SCALAR_9 + (pyIndex - 1n)) / pyIndex;
+}
+
+export interface BadDebtClampContext {
+  availableForPtSy: bigint;
+  ptTotalSupply: bigint;
+}
+
+function calculateProRataShare(amount: bigint, available: bigint, totalSupply: bigint): bigint {
+  if (totalSupply <= 0n) throw new Error("MathError::DivisionByZero");
+  if (available <= 0n || amount <= 0n) return 0n;
+  if (amount >= totalSupply) return available;
+  return (amount * available) / totalSupply;
+}
+
 export function quoteSwap(
   state: MarketStateOnChain,
   direction: SwapDirection,
   amountIn: bigint,
   nowSeconds: bigint,
-  slippageBps = 50
+  slippageBps = 50,
+  pyIndex: bigint = SCALAR_9,
+  badDebtContext?: BadDebtClampContext
 ): SwapQuoteResult {
   if (amountIn <= 0n) {
     throw new Error("Amount must be positive");
+  }
+  if (pyIndex <= 0n) {
+    throw new Error("ContractError::InvalidRate");
   }
   const tauWad = calculateTauWad(nowSeconds, state.maturity);
   if (tauWad <= 0n) {
@@ -183,6 +242,7 @@ export function quoteSwap(
   const feeRate = calculateFeeRate(tauWad, state.annual_fee_rate);
   const ptRes = state.total_pt_reserve;
   const syRes = state.total_sy_reserve;
+  const assetRes = syToAsset(pyIndex, syRes);
 
   let estimatedOut = 0n;
   let feeAmount = 0n;
@@ -192,60 +252,148 @@ export function quoteSwap(
 
   if (direction === "pt_for_sy") {
     newPt = ptRes + amountIn;
-    tradeRateWad = getExchangeRate(newPt, syRes, tauWad, state.scalar_root, state.initial_anchor);
-    const grossSy = wadDiv(amountIn, tradeRateWad);
-    feeAmount = wadMul(grossSy, feeRate);
-    estimatedOut = grossSy - feeAmount;
+    tradeRateWad = getExchangeRate(newPt, assetRes, tauWad, state.scalar_root, state.initial_anchor);
+    const grossAsset = wadDiv(amountIn, tradeRateWad);
+    const feeAsset = wadMul(grossAsset, feeRate);
+    const netAssetOut = grossAsset - feeAsset;
+    estimatedOut = assetToSy(pyIndex, netAssetOut);
+    feeAmount = assetToSy(pyIndex, feeAsset);
+    if (estimatedOut <= 0n) throw new Error("ContractError::ZeroAmount");
     if (estimatedOut >= syRes) throw new Error("ContractError::InsufficientBalance");
     const protoFee = (feeAmount * state.protocol_fee_bps) / 10_000n;
     newSy = syRes - estimatedOut - protoFee;
-    checkMarketProportion(newPt, newSy);
+    const finalAssetRes = syToAsset(pyIndex, newSy);
+    checkMarketProportion(newPt, finalAssetRes);
+    if (newPt < assetRes - netAssetOut || newPt < finalAssetRes) {
+      throw new Error("ContractError::NegativeYieldNotSupported");
+    }
   } else if (direction === "sy_for_pt") {
-    newSy = syRes + amountIn;
-    tradeRateWad = getExchangeRate(ptRes, newSy, tauWad, state.scalar_root, state.initial_anchor);
-    const grossPt = wadMul(amountIn, tradeRateWad);
+    const assetIn = syToAsset(pyIndex, amountIn);
+    if (assetIn <= 0n) throw new Error("ContractError::ZeroAmount");
+    const newAssetRes = assetRes + assetIn;
+    tradeRateWad = getExchangeRate(ptRes, newAssetRes, tauWad, state.scalar_root, state.initial_anchor);
+    const grossPt = wadMul(assetIn, tradeRateWad);
     feeAmount = wadMul(grossPt, feeRate);
     estimatedOut = grossPt - feeAmount;
+    if (estimatedOut <= 0n) throw new Error("ContractError::ZeroAmount");
     if (estimatedOut >= ptRes) throw new Error("ContractError::InsufficientBalance");
-    newPt = ptRes - estimatedOut;
-    checkMarketProportion(newPt, newSy);
+    const protoFee = (feeAmount * state.protocol_fee_bps) / 10_000n;
+    newPt = ptRes - estimatedOut - protoFee;
+    newSy = syRes + amountIn;
+    const finalAssetRes = syToAsset(pyIndex, newSy);
+    checkMarketProportion(newPt, finalAssetRes);
+    if (newPt < finalAssetRes) {
+      throw new Error("ContractError::NegativeYieldNotSupported");
+    }
   } else if (direction === "sy_for_yt") {
-    const e0 = getExchangeRate(ptRes, syRes, tauWad, state.scalar_root, state.initial_anchor);
+    const assetIn = syToAsset(pyIndex, amountIn);
+    if (assetIn <= 0n) throw new Error("ContractError::ZeroAmount");
+    const e0 = getExchangeRate(ptRes, assetRes, tauWad, state.scalar_root, state.initial_anchor);
     if (e0 <= WAD) throw new Error("ContractError::NegativeYieldNotSupported");
     const unitYield0 = WAD - wadDiv(WAD, e0);
     const unitCost0 = unitYield0 + wadMul(unitYield0, feeRate);
     if (unitCost0 <= 0n) throw new Error("ContractError::NegativeYieldNotSupported");
 
-    let n = wadDiv(amountIn, unitCost0);
-    const e1 = getExchangeRate(ptRes + n, syRes, tauWad, state.scalar_root, state.initial_anchor);
-    const unitYield1 = WAD - wadDiv(WAD, e1);
-    const unitCost1 = unitYield1 + wadMul(unitYield1, feeRate);
-    if (unitCost1 > 0n) {
-      n = wadDiv(amountIn, unitCost1);
+    const n0 = wadDiv(assetIn, unitCost0);
+    const maxNSy = syToAsset(pyIndex, syRes + amountIn);
+    let hi = n0 < maxNSy ? n0 : maxNSy;
+    let lo = 0n;
+    let bestE = e0;
+
+    for (let i = 0; i < 48; i++) {
+      if (lo >= hi) break;
+      const mid = lo + (hi - lo + 1n) / 2n;
+      const grossEst = wadDiv(mid, e0);
+      if (grossEst >= assetRes) {
+        hi = mid - 1n;
+        continue;
+      }
+      try {
+        const eMid = getExchangeRate(
+          ptRes + mid,
+          assetRes - grossEst,
+          tauWad,
+          state.scalar_root,
+          state.initial_anchor
+        );
+        const unitYield = WAD - wadDiv(WAD, eMid);
+        const unitCost = unitYield + wadMul(unitYield, feeRate);
+        const cost = wadMul(mid, unitCost);
+        if (cost <= assetIn) {
+          lo = mid;
+          bestE = eMid;
+        } else {
+          hi = mid - 1n;
+        }
+      } catch {
+        hi = mid - 1n;
+      }
     }
-    tradeRateWad = e1;
-    const grossSySold = wadDiv(n, e1);
-    const yieldCost = n - grossSySold;
-    feeAmount = wadMul(yieldCost, feeRate);
+
+    const n = lo;
+    if (n <= 0n) throw new Error("ContractError::ZeroAmount");
+    tradeRateWad = bestE;
+    const grossAssetSold = wadDiv(n, bestE);
+    const yieldCost = n - grossAssetSold;
+    const feeAsset = wadMul(yieldCost, feeRate);
+    feeAmount = assetToSy(pyIndex, feeAsset);
+    const protoFeeSy = (feeAmount * state.protocol_fee_bps) / 10_000n;
+    const pyBackingSy = assetToSyCeil(pyIndex, n);
     estimatedOut = n;
     newPt = ptRes + n;
-    newSy = syRes - grossSySold;
+    newSy = syRes + amountIn - protoFeeSy - pyBackingSy;
     if (newSy <= 0n) throw new Error("ContractError::InsufficientBalance");
-    checkMarketProportion(newPt, newSy);
+    const finalAssetRes = syToAsset(pyIndex, newSy);
+    checkMarketProportion(newPt, finalAssetRes);
+    if (newPt < finalAssetRes) {
+      throw new Error("ContractError::NegativeYieldNotSupported");
+    }
   } else if (direction === "yt_for_sy") {
     if (ptRes < amountIn) throw new Error("ContractError::InsufficientBalance");
     newPt = ptRes - amountIn;
-    tradeRateWad = getExchangeRate(newPt, syRes, tauWad, state.scalar_root, state.initial_anchor);
-    const grossSyBuy = wadDiv(amountIn, tradeRateWad);
-    if (amountIn <= grossSyBuy) throw new Error("ContractError::NegativeYieldNotSupported");
-    const grossYield = amountIn - grossSyBuy;
-    feeAmount = wadMul(grossYield, feeRate);
-    estimatedOut = grossYield - feeAmount;
-    newSy = syRes + grossSyBuy;
-    checkMarketProportion(newPt, newSy);
+    const e0 = getExchangeRate(newPt, assetRes, tauWad, state.scalar_root, state.initial_anchor);
+    const estAsset1 = assetRes + wadDiv(amountIn, e0);
+    const e1 = getExchangeRate(newPt, estAsset1, tauWad, state.scalar_root, state.initial_anchor);
+    const estAsset2 = assetRes + wadDiv(amountIn, e1);
+    tradeRateWad = getExchangeRate(newPt, estAsset2, tauWad, state.scalar_root, state.initial_anchor);
+    const grossAssetBuy = wadDivCeil(amountIn, tradeRateWad);
+    if (amountIn <= grossAssetBuy) throw new Error("ContractError::NegativeYieldNotSupported");
+    const grossYield = amountIn - grossAssetBuy;
+    const feeAsset = wadMul(grossYield, feeRate);
+    const netAssetOut = grossYield - feeAsset;
+    estimatedOut = assetToSy(pyIndex, netAssetOut);
+    if (estimatedOut <= 0n) throw new Error("ContractError::ZeroAmount");
+    feeAmount = assetToSy(pyIndex, feeAsset);
+    const protoFeeSy = (feeAmount * state.protocol_fee_bps) / 10_000n;
+    const fullFreedSy = assetToSy(pyIndex, amountIn);
+    const freedPtSy = badDebtContext
+      ? (() => {
+          const proRata = calculateProRataShare(
+            amountIn,
+            badDebtContext.availableForPtSy,
+            badDebtContext.ptTotalSupply
+          );
+          return fullFreedSy < proRata ? fullFreedSy : proRata;
+        })()
+      : fullFreedSy;
+    if (freedPtSy < estimatedOut + protoFeeSy) {
+      throw new Error("ContractError::InsufficientBalance");
+    }
+    newSy = syRes + freedPtSy - estimatedOut - protoFeeSy;
+    const finalAssetRes = syToAsset(pyIndex, newSy);
+    checkMarketProportion(newPt, finalAssetRes);
+    if (newPt < finalAssetRes) {
+      throw new Error("ContractError::NegativeYieldNotSupported");
+    }
   }
 
-  const rateAfter = getExchangeRate(newPt, newSy, tauWad, state.scalar_root, state.initial_anchor);
+  const rateAfter = getExchangeRate(
+    newPt,
+    syToAsset(pyIndex, newSy),
+    tauWad,
+    state.scalar_root,
+    state.initial_anchor
+  );
 
   return {
     direction,

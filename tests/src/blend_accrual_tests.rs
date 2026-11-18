@@ -257,7 +257,8 @@ fn test_yt_holders_claim_organically_accrued_yield_across_horizons() {
 
     f.usdc_admin_client.mint(&f.user1, &amount);
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &amount);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &amount, &f.maturity);
 
     assert_eq!(f.pool_client.claim_yield(&f.user1, &f.user1), 0);
 
@@ -306,8 +307,10 @@ fn test_differential_claiming_schedules_yield_convergence() {
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
     f.sy_client.deposit(&f.user2, &f.user2, &amount);
 
-    f.pool_client.mint_py(&f.user1, &f.user1, &amount);
-    f.pool_client.mint_py(&f.user2, &f.user2, &amount);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &amount, &f.maturity);
+    f.pool_client
+        .mint_py(&f.user2, &f.user2, &amount, &f.maturity);
 
     // User1 claims progressively: 10D, 30D, 60D, 90D
     advance_time_and_ledgers(&f, 10 * 86400);
@@ -343,7 +346,8 @@ fn test_yt_transfer_checkpointing_preserves_accrued_yield_under_dynamic_clock() 
 
     f.usdc_admin_client.mint(&f.user1, &amount);
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &amount);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &amount, &f.maturity);
 
     // Advance 30 days
     advance_time_and_ledgers(&f, 30 * 86400);
@@ -373,7 +377,7 @@ fn test_yt_transfer_checkpointing_preserves_accrued_yield_under_dynamic_clock() 
         .deposit(&f_bench.user1, &f_bench.user1, &amount);
     f_bench
         .pool_client
-        .mint_py(&f_bench.user1, &f_bench.user1, &amount);
+        .mint_py(&f_bench.user1, &f_bench.user1, &amount, &f_bench.maturity);
 
     advance_time_and_ledgers(&f_bench, 30 * 86400);
     // Checkpoint at 30D via self-transfer without claiming
@@ -397,7 +401,8 @@ fn test_post_maturity_yt_claim_clamped_at_maturity_index() {
 
     f.usdc_admin_client.mint(&f.user1, &amount);
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &amount);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &amount, &f.maturity);
 
     // Advance to maturity (180D)
     advance_time_and_ledgers(&f, 180 * 86400);
@@ -436,8 +441,8 @@ fn test_zero_deficit_pool_balance_invariant_under_continuous_accrual() {
     f.sy_client.deposit(&f.user1, &f.user1, &a1);
     f.sy_client.deposit(&f.user2, &f.user2, &a2);
 
-    f.pool_client.mint_py(&f.user1, &f.user1, &a1);
-    f.pool_client.mint_py(&f.user2, &f.user2, &a2);
+    f.pool_client.mint_py(&f.user1, &f.user1, &a1, &f.maturity);
+    f.pool_client.mint_py(&f.user2, &f.user2, &a2, &f.maturity);
 
     let mut cumulative_claimed = 0i128;
 
@@ -464,7 +469,8 @@ fn test_pt_redemption_post_maturity_full_principal_solvency() {
 
     f.usdc_admin_client.mint(&f.user1, &amount);
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &amount);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &amount, &f.maturity);
 
     // Claim yield periodically across 180D
     for _ in 0..6 {
@@ -493,7 +499,8 @@ fn test_total_underlying_conservation_invariant() {
 
     f.usdc_admin_client.mint(&f.user1, &amount);
     f.sy_client.deposit(&f.user1, &f.user1, &amount);
-    f.pool_client.mint_py(&f.user1, &f.user1, &amount);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &amount, &f.maturity);
 
     advance_time_and_ledgers(&f, 90 * 86400);
 
@@ -522,7 +529,7 @@ fn test_amm_swaps_during_progressive_accrual() {
     f.sy_client
         .deposit(&f.lp_provider, &f.lp_provider, &total_mint);
     f.pool_client
-        .mint_py(&f.lp_provider, &f.lp_provider, &pt_init);
+        .mint_py(&f.lp_provider, &f.lp_provider, &pt_init, &f.maturity);
 
     f.pool_client
         .add_liquidity(&f.lp_provider, &f.lp_provider, &pt_init, &sy_init, &0);
@@ -537,9 +544,9 @@ fn test_amm_swaps_during_progressive_accrual() {
     let trader_sy = f.sy_client.deposit(&trader, &trader, &trader_mint);
 
     let swap_sy = trader_sy / 2; // Swap half of trader's SY
-    let (pt_out, fee_pt) = f
-        .pool_client
-        .swap_exact_sy_for_pt(&trader, &trader, &swap_sy, &0);
+    let (pt_out, fee_pt) =
+        f.pool_client
+            .swap_exact_sy_for_pt(&trader, &trader, &swap_sy, &0, &f.maturity);
     assert!(pt_out > 0);
     assert!(fee_pt > 0);
 
@@ -552,9 +559,9 @@ fn test_amm_swaps_during_progressive_accrual() {
 
     // Trader swaps part of PT for SY
     let swap_pt = pt_out / 2;
-    let (sy_out, fee_sy) = f
-        .pool_client
-        .swap_exact_pt_for_sy(&trader, &trader, &swap_pt, &0);
+    let (sy_out, fee_sy) =
+        f.pool_client
+            .swap_exact_pt_for_sy(&trader, &trader, &swap_pt, &0, &f.maturity);
     assert!(sy_out > 0);
     assert!(fee_sy > 0);
 
@@ -576,7 +583,7 @@ fn test_amm_liquidity_removal_post_accrual() {
     f.sy_client
         .deposit(&f.lp_provider, &f.lp_provider, &total_mint);
     f.pool_client
-        .mint_py(&f.lp_provider, &f.lp_provider, &pt_init);
+        .mint_py(&f.lp_provider, &f.lp_provider, &pt_init, &f.maturity);
 
     let lp_shares =
         f.pool_client

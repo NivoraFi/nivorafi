@@ -15,9 +15,9 @@ import {
   MarketDefinition,
   MarketSummaryMetrics,
   calculateDaysToMaturity,
+  deriveMarketStatus,
   findMarketById,
   getAssetPriceUsd,
-  getMarketBaselineMetrics,
 } from "@/lib/markets";
 import {
   LiveMarketSnapshot,
@@ -25,42 +25,28 @@ import {
   fetchMarketSnapshot,
   fetchUserPortfolio,
 } from "@/lib/stellar";
+import { decodeSorobanError } from "@/lib/math";
 import { useWallet } from "./WalletProvider";
 
-export function buildFallbackSnapshot(m: MarketDefinition): LiveMarketSnapshot {
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  const isMatured = nowSeconds >= m.maturity;
-  const daysToMaturity = calculateDaysToMaturity(m.maturity, nowSeconds);
-  const ptReserve = 80_000_0000000n;
-  const syReserve = 40_000_0000000n;
-  const baseline = getMarketBaselineMetrics(m, nowSeconds);
+function createZeroMarketMetrics(
+  market: MarketDefinition,
+  nowSeconds: number,
+  isLoading: boolean
+): MarketSummaryMetrics {
+  const isMatured = nowSeconds >= market.maturity;
   return {
-    state: {
-      total_pt_reserve: ptReserve,
-      total_sy_reserve: syReserve,
-      total_lp_supply: 56_568_5424949n,
-      scalar_root: 50_000000000000000000n,
-      initial_anchor: 1_020000000000000000n,
-      annual_fee_rate: 3_000000000000000n,
-      protocol_fee_bps: 2000n,
-      fee_recipient: m.contracts.poolId,
-      maturity: BigInt(m.maturity),
-      maturity_index: 1_000000000n,
-      is_settled: isMatured,
-    },
-    latestLedger: 0,
-    nowSeconds,
-    daysToMaturity,
+    marketId: market.id,
+    status: deriveMarketStatus(market.maturity, nowSeconds),
+    daysToMaturity: calculateDaysToMaturity(market.maturity, nowSeconds),
+    impliedApyPct: 0,
+    blendRate: 0,
+    ptPriceInSy: isMatured ? 1.0 : 0,
+    tvlSy: 0n,
+    tvlUsd: 0,
+    ptReserve: 0n,
+    syReserve: 0n,
     isMatured,
-    blendExchangeRate: 1_001000000n,
-    ammExchangeRateWad: 1_020408163265306122n,
-    ptPriceInSy: baseline.ptPriceInSy,
-    ytPriceInSy: isMatured ? 0.0 : Number(Math.max(0, 1.0 - baseline.ptPriceInSy).toFixed(4)),
-    impliedFixedApyPct: baseline.impliedApyPct,
-    ptTotalSupply: ptReserve,
-    ytTotalSupply: ptReserve,
-    syTotalSupply: ptReserve + syReserve,
-    ptProportionPct: 66.67,
+    isLoading,
   };
 }
 
@@ -68,50 +54,27 @@ export function deriveMetricsFromSnapshot(
   market: MarketDefinition,
   snap: LiveMarketSnapshot
 ): MarketSummaryMetrics {
-  const baseline = getMarketBaselineMetrics(market, snap.nowSeconds);
-  if (!market.isRegisteredOnChain) {
-    return baseline;
-  }
+  const ptTokens = Number(snap.state.total_pt_reserve) / 1e7;
+  const syTokens = Number(snap.state.total_sy_reserve) / 1e7;
+  const hasLiquidity = snap.state.total_pt_reserve + snap.state.total_sy_reserve > 0n;
+  const tvlUsd = hasLiquidity
+    ? (ptTokens * snap.ptPriceInSy + syTokens) * getAssetPriceUsd(market.asset.code)
+    : 0;
 
-  const hasOnChainLiquidity =
-    snap.state.total_pt_reserve + snap.state.total_sy_reserve > 0n;
-
-  if (hasOnChainLiquidity) {
-    const ptTokens = Number(snap.state.total_pt_reserve) / 1e7;
-    const syTokens = Number(snap.state.total_sy_reserve) / 1e7;
-    const tvlUsd =
-      (ptTokens * snap.ptPriceInSy + syTokens) *
-      getAssetPriceUsd(market.asset.code);
-
-    return {
-      marketId: market.id,
-      status: snap.isMatured ? "MATURED" : "ACTIVE",
-      daysToMaturity: snap.daysToMaturity,
-      impliedApyPct: snap.impliedFixedApyPct,
-      blendRate: Number(snap.blendExchangeRate) / 1e9,
-      ptPriceInSy: snap.ptPriceInSy,
-      tvlSy: snap.state.total_pt_reserve + snap.state.total_sy_reserve,
-      tvlUsd,
-      ptReserve: snap.state.total_pt_reserve,
-      syReserve: snap.state.total_sy_reserve,
-      isMatured: snap.isMatured,
-      isLoading: false,
-    };
-  } else {
-    return {
-      ...baseline,
-      status: snap.isMatured ? "MATURED" : "ACTIVE",
-      daysToMaturity: snap.daysToMaturity,
-      isMatured: snap.isMatured,
-      impliedApyPct:
-        snap.impliedFixedApyPct > 0
-          ? snap.impliedFixedApyPct
-          : baseline.impliedApyPct,
-      ptPriceInSy:
-        snap.ptPriceInSy > 0 ? snap.ptPriceInSy : baseline.ptPriceInSy,
-      isLoading: false,
-    };
-  }
+  return {
+    marketId: market.id,
+    status: snap.isMatured ? "MATURED" : "ACTIVE",
+    daysToMaturity: snap.daysToMaturity,
+    impliedApyPct: snap.impliedFixedApyPct,
+    blendRate: Number(snap.blendExchangeRate) / 1e9,
+    ptPriceInSy: snap.ptPriceInSy,
+    tvlSy: snap.state.total_pt_reserve + snap.state.total_sy_reserve,
+    tvlUsd,
+    ptReserve: snap.state.total_pt_reserve,
+    syReserve: snap.state.total_sy_reserve,
+    isMatured: snap.isMatured,
+    isLoading: false,
+  };
 }
 
 export interface MarketContextValue {
@@ -123,6 +86,7 @@ export interface MarketContextValue {
   activePortfolio: LiveUserPortfolio | null;
   loadingSnapshot: boolean;
   loadingPortfolio: boolean;
+  snapshotError: string | null;
   marketMetrics: Record<string, MarketSummaryMetrics>;
   refreshActiveMarket: () => Promise<void>;
   refreshAllMetrics: () => Promise<void>;
@@ -136,6 +100,13 @@ export interface MarketProviderProps {
 export const MarketContext = createContext<MarketContextValue | null>(null);
 
 const STORAGE_KEY = "stellar_pendle_active_market";
+
+function isAbortLikeError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const name = "name" in err ? String((err as { name?: unknown }).name) : "";
+  const msg = "message" in err ? String((err as { message?: unknown }).message) : "";
+  return name === "AbortError" || msg.includes("The operation was aborted");
+}
 
 export function MarketProvider({ children, initialMarketId }: MarketProviderProps) {
   const existing = useContext(MarketContext);
@@ -186,26 +157,30 @@ function MarketProviderInner({ children, initialMarketId }: MarketProviderProps)
 
   const [activeMarketId, setActiveMarketId] = useState<string>(resolvedInitialId);
 
-  const initialMarketDef = useMemo(() => {
-    return findMarketById(resolvedInitialId, markets);
-  }, [resolvedInitialId, markets]);
-
-  const [activeSnapshot, setActiveSnapshot] = useState<LiveMarketSnapshot | null>(() =>
-    buildFallbackSnapshot(initialMarketDef)
-  );
+  const [activeSnapshot, setActiveSnapshot] = useState<LiveMarketSnapshot | null>(null);
   const [activePortfolio, setActivePortfolio] = useState<LiveUserPortfolio | null>(null);
   const [loadingSnapshot, setLoadingSnapshot] = useState<boolean>(true);
   const [loadingPortfolio, setLoadingPortfolio] = useState<boolean>(false);
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
   const snapshotCacheRef = useRef<Record<string, LiveMarketSnapshot>>({});
   const portfolioCacheRef = useRef<Record<string, LiveUserPortfolio>>({});
   const activeMarketIdRef = useRef<string>(resolvedInitialId);
   activeMarketIdRef.current = activeMarketId;
+  const addressRef = useRef<string | null>(address);
+  addressRef.current = address;
+  const mountedRef = useRef<boolean>(true);
+  const snapshotSeqRef = useRef<number>(0);
+  const portfolioSeqRef = useRef<number>(0);
+  const hydrateSeqRef = useRef<number>(0);
+  const snapshotAbortRef = useRef<AbortController | null>(null);
+  const portfolioAbortRef = useRef<AbortController | null>(null);
+  const hydrateAbortRef = useRef<AbortController | null>(null);
 
   const [marketMetrics, setMarketMetrics] = useState<Record<string, MarketSummaryMetrics>>(() => {
     const initial: Record<string, MarketSummaryMetrics> = {};
     const now = Math.floor(Date.now() / 1000);
     for (const m of PRESET_MARKETS) {
-      initial[m.id] = getMarketBaselineMetrics(m, now);
+      initial[m.id] = createZeroMarketMetrics(m, now, m.isRegisteredOnChain);
     }
     return initial;
   });
@@ -220,9 +195,10 @@ function MarketProviderInner({ children, initialMarketId }: MarketProviderProps)
     if (routeParamId && routeParamId !== activeMarketIdRef.current) {
       activeMarketIdRef.current = routeParamId;
       setActiveMarketId(routeParamId);
+      setSnapshotError(null);
       const target = markets.find((m) => m.id === routeParamId);
       if (target) {
-        setActiveSnapshot(snapshotCacheRef.current[routeParamId] ?? buildFallbackSnapshot(target));
+        setActiveSnapshot(snapshotCacheRef.current[routeParamId] ?? null);
       }
     }
   }, [routeParamId, markets]);
@@ -240,7 +216,7 @@ function MarketProviderInner({ children, initialMarketId }: MarketProviderProps)
       setActiveMarketId(targetId);
       const target = markets.find((m) => m.id === targetId);
       if (target) {
-        setActiveSnapshot(snapshotCacheRef.current[targetId] ?? buildFallbackSnapshot(target));
+        setActiveSnapshot(snapshotCacheRef.current[targetId] ?? null);
       }
     }
   }, [markets, routeParamId]);
@@ -255,7 +231,8 @@ function MarketProviderInner({ children, initialMarketId }: MarketProviderProps)
       if (!target) return;
       activeMarketIdRef.current = id;
       setActiveMarketId(id);
-      setActiveSnapshot(snapshotCacheRef.current[id] ?? buildFallbackSnapshot(target));
+      setSnapshotError(null);
+      setActiveSnapshot(snapshotCacheRef.current[id] ?? null);
       if (address) {
         const cachedPort = portfolioCacheRef.current[`${address}:${id}`];
         if (cachedPort) {
@@ -281,50 +258,39 @@ function MarketProviderInner({ children, initialMarketId }: MarketProviderProps)
 
   const refreshSnapshot = useCallback(async () => {
     const targetMarket = activeMarket;
+    snapshotAbortRef.current?.abort();
+    const controller = new AbortController();
+    snapshotAbortRef.current = controller;
+    const seq = ++snapshotSeqRef.current;
+
+    const isStale = () =>
+      !mountedRef.current ||
+      controller.signal.aborted ||
+      snapshotSeqRef.current !== seq ||
+      activeMarketIdRef.current !== targetMarket.id;
+
     setLoadingSnapshot(true);
+    setSnapshotError(null);
 
     if (!targetMarket.isRegisteredOnChain) {
-      const fallback = buildFallbackSnapshot(targetMarket);
-      snapshotCacheRef.current[targetMarket.id] = fallback;
-      if (activeMarketIdRef.current === targetMarket.id) {
-        setActiveSnapshot(fallback);
+      const now = Math.floor(Date.now() / 1000);
+      if (!isStale()) {
+        setActiveSnapshot(null);
         setLoadingSnapshot(false);
+        setMarketMetrics((prev) => ({
+          ...prev,
+          [targetMarket.id]: createZeroMarketMetrics(targetMarket, now, false),
+        }));
       }
-      setMarketMetrics((prev) => ({
-        ...prev,
-        [targetMarket.id]: getMarketBaselineMetrics(targetMarket),
-      }));
       return;
     }
 
     try {
-      const snap = await fetchMarketSnapshot(targetMarket);
-      if (snap.state.total_pt_reserve + snap.state.total_sy_reserve === 0n) {
-        const baseline = getMarketBaselineMetrics(targetMarket, snap.nowSeconds);
-        const hydratedSnap: LiveMarketSnapshot = {
-          ...snap,
-          state: {
-            ...snap.state,
-            total_pt_reserve: baseline.ptReserve,
-            total_sy_reserve: baseline.syReserve,
-          },
-          syTotalSupply: baseline.tvlSy,
-          ptTotalSupply: baseline.ptReserve,
-          ytTotalSupply: baseline.ptReserve,
-          ptProportionPct: Number(
-            ((Number(baseline.ptReserve) / Number(baseline.tvlSy)) * 100).toFixed(2)
-          ),
-        };
-        snapshotCacheRef.current[targetMarket.id] = hydratedSnap;
-        if (activeMarketIdRef.current === targetMarket.id) {
-          setActiveSnapshot(hydratedSnap);
-        }
-      } else {
-        snapshotCacheRef.current[targetMarket.id] = snap;
-        if (activeMarketIdRef.current === targetMarket.id) {
-          setActiveSnapshot(snap);
-        }
-      }
+      const snap = await fetchMarketSnapshot(targetMarket, { signal: controller.signal });
+      if (isStale()) return;
+      snapshotCacheRef.current[targetMarket.id] = snap;
+      setActiveSnapshot(snap);
+      setSnapshotError(null);
 
       // Update active market metrics with live data
       const derived = deriveMetricsFromSnapshot(targetMarket, snap);
@@ -332,87 +298,116 @@ function MarketProviderInner({ children, initialMarketId }: MarketProviderProps)
         ...prev,
         [targetMarket.id]: derived,
       }));
-    } catch {
-      // In dry-run / network error, retain fallback metrics and snapshot
-      if (activeMarketIdRef.current === targetMarket.id) {
-        setActiveSnapshot(
-          (prev) => prev ?? snapshotCacheRef.current[targetMarket.id] ?? buildFallbackSnapshot(targetMarket)
-        );
-      }
+    } catch (err: unknown) {
+      if (isStale() || isAbortLikeError(err)) return;
+      const msg = decodeSorobanError(err);
+      const now = Math.floor(Date.now() / 1000);
+      setSnapshotError(msg);
+      setActiveSnapshot((prev) => prev ?? snapshotCacheRef.current[targetMarket.id] ?? null);
+      setMarketMetrics((prev) => {
+        const existing = prev[targetMarket.id];
+        if (existing && !existing.isLoading) return prev;
+        return {
+          ...prev,
+          [targetMarket.id]: createZeroMarketMetrics(targetMarket, now, false),
+        };
+      });
     } finally {
-      if (activeMarketIdRef.current === targetMarket.id) {
+      if (!isStale()) {
         setLoadingSnapshot(false);
       }
     }
   }, [activeMarket]);
 
   const hydrateRegisteredPools = useCallback(async () => {
+    hydrateAbortRef.current?.abort();
+    const controller = new AbortController();
+    hydrateAbortRef.current = controller;
+    const seq = ++hydrateSeqRef.current;
+
+    const isStale = () =>
+      !mountedRef.current || controller.signal.aborted || hydrateSeqRef.current !== seq;
+
     const registered = markets.filter((m) => m.isRegisteredOnChain);
     const results = await Promise.allSettled(
       registered.map(async (m) => {
-        const snap = await fetchMarketSnapshot(m);
+        const snap = await fetchMarketSnapshot(m, { signal: controller.signal });
         return { market: m, snap };
       })
     );
 
+    if (isStale()) return;
+
+    const now = Math.floor(Date.now() / 1000);
     const updates: Record<string, MarketSummaryMetrics> = {};
-    for (const res of results) {
+    results.forEach((res, idx) => {
+      const market = registered[idx]!;
       if (res.status === "fulfilled") {
-        const { market, snap } = res.value;
-        if (snap.state.total_pt_reserve + snap.state.total_sy_reserve === 0n) {
-          const baseline = getMarketBaselineMetrics(market, snap.nowSeconds);
-          const hydratedSnap: LiveMarketSnapshot = {
-            ...snap,
-            state: {
-              ...snap.state,
-              total_pt_reserve: baseline.ptReserve,
-              total_sy_reserve: baseline.syReserve,
-            },
-            syTotalSupply: baseline.tvlSy,
-            ptTotalSupply: baseline.ptReserve,
-            ytTotalSupply: baseline.ptReserve,
-            ptProportionPct: Number(
-              ((Number(baseline.ptReserve) / Number(baseline.tvlSy)) * 100).toFixed(2)
-            ),
-          };
-          snapshotCacheRef.current[market.id] = hydratedSnap;
-        } else {
-          snapshotCacheRef.current[market.id] = snap;
-        }
-
-        updates[market.id] = deriveMetricsFromSnapshot(market, snap);
+        snapshotCacheRef.current[market.id] = res.value.snap;
+        updates[market.id] = deriveMetricsFromSnapshot(market, res.value.snap);
+      } else if (!isAbortLikeError(res.reason)) {
+        updates[market.id] = createZeroMarketMetrics(market, now, false);
       }
-    }
+    });
 
-    if (Object.keys(updates).length > 0) {
-      setMarketMetrics((prev) => ({
-        ...prev,
-        ...updates,
-      }));
+    if (Object.keys(updates).length > 0 && !isStale()) {
+      setMarketMetrics((prev) => {
+        const next = { ...prev };
+        for (const [id, metric] of Object.entries(updates)) {
+          const prevMetric = prev[id];
+          if (metric.tvlSy === 0n && prevMetric && prevMetric.tvlSy > 0n) {
+            continue;
+          }
+          next[id] = metric;
+        }
+        return next;
+      });
     }
   }, [markets]);
 
   const refreshPortfolio = useCallback(async () => {
     const targetMarket = activeMarket;
-    if (address) {
-      setLoadingPortfolio(true);
-      try {
-        const port = await fetchUserPortfolio(address, targetMarket);
-        portfolioCacheRef.current[`${address}:${targetMarket.id}`] = port;
-        if (activeMarketIdRef.current === targetMarket.id) {
-          setActivePortfolio(port);
-        }
-      } catch {
-        if (activeMarketIdRef.current === targetMarket.id) {
-          setActivePortfolio((prev) => portfolioCacheRef.current[`${address}:${targetMarket.id}`] ?? prev ?? null);
-        }
-      } finally {
-        if (activeMarketIdRef.current === targetMarket.id) {
-          setLoadingPortfolio(false);
-        }
+    const targetAddress = address;
+    portfolioAbortRef.current?.abort();
+
+    if (!targetAddress) {
+      portfolioSeqRef.current += 1;
+      portfolioAbortRef.current = null;
+      if (mountedRef.current) {
+        setActivePortfolio(null);
+        setLoadingPortfolio(false);
       }
-    } else {
-      setActivePortfolio(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    portfolioAbortRef.current = controller;
+    const seq = ++portfolioSeqRef.current;
+
+    const isStale = () =>
+      !mountedRef.current ||
+      controller.signal.aborted ||
+      portfolioSeqRef.current !== seq ||
+      activeMarketIdRef.current !== targetMarket.id ||
+      addressRef.current !== targetAddress;
+
+    setLoadingPortfolio(true);
+    try {
+      const port = await fetchUserPortfolio(targetAddress, targetMarket, {
+        signal: controller.signal,
+      });
+      if (isStale()) return;
+      portfolioCacheRef.current[`${targetAddress}:${targetMarket.id}`] = port;
+      setActivePortfolio(port);
+    } catch (err: unknown) {
+      if (isStale() || isAbortLikeError(err)) return;
+      setActivePortfolio(
+        (prev) => portfolioCacheRef.current[`${targetAddress}:${targetMarket.id}`] ?? prev ?? null
+      );
+    } finally {
+      if (!isStale()) {
+        setLoadingPortfolio(false);
+      }
     }
   }, [activeMarket, address]);
 
@@ -427,6 +422,8 @@ function MarketProviderInner({ children, initialMarketId }: MarketProviderProps)
 
     // Hydrate all registered pools
     await hydrateRegisteredPools();
+
+    if (!mountedRef.current) return;
 
     // Re-evaluate temporal boundaries for all other preset markets
     setMarketMetrics((prev) => {
@@ -447,19 +444,39 @@ function MarketProviderInner({ children, initialMarketId }: MarketProviderProps)
     });
   }, [markets, refreshActiveMarket, hydrateRegisteredPools]);
 
+  // Track mount lifecycle and abort all in-flight RPC/Horizon requests cleanly on unmount
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      hydrateAbortRef.current?.abort();
+      snapshotAbortRef.current?.abort();
+      portfolioAbortRef.current?.abort();
+    };
+  }, []);
+
   // Hydrate all registered pools on mount
   useEffect(() => {
     void hydrateRegisteredPools();
+    return () => {
+      hydrateAbortRef.current?.abort();
+    };
   }, [hydrateRegisteredPools]);
 
   // Trigger snapshot refresh when active market changes
   useEffect(() => {
     void refreshSnapshot();
+    return () => {
+      snapshotAbortRef.current?.abort();
+    };
   }, [refreshSnapshot]);
 
   // Trigger portfolio refresh when active market or wallet address changes
   useEffect(() => {
     void refreshPortfolio();
+    return () => {
+      portfolioAbortRef.current?.abort();
+    };
   }, [refreshPortfolio]);
 
   const value = useMemo(
@@ -472,6 +489,7 @@ function MarketProviderInner({ children, initialMarketId }: MarketProviderProps)
       activePortfolio,
       loadingSnapshot,
       loadingPortfolio,
+      snapshotError,
       marketMetrics,
       refreshActiveMarket,
       refreshAllMetrics,
@@ -485,6 +503,7 @@ function MarketProviderInner({ children, initialMarketId }: MarketProviderProps)
       activePortfolio,
       loadingSnapshot,
       loadingPortfolio,
+      snapshotError,
       marketMetrics,
       refreshActiveMarket,
       refreshAllMetrics,
@@ -503,6 +522,7 @@ const DEFAULT_MARKET_CONTEXT: MarketContextValue = {
   activePortfolio: null,
   loadingSnapshot: false,
   loadingPortfolio: false,
+  snapshotError: null,
   marketMetrics: {},
   refreshActiveMarket: async () => {},
   refreshAllMetrics: async () => {},

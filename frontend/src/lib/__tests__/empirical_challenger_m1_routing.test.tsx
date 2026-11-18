@@ -27,27 +27,27 @@ describe("Empirical Challenger M1: Dynamic Routing, Normalization & Security Bou
   // Dimension 1: Static Parameter Generation Coverage
   // =========================================================================
   describe("1. Static Params Generation & Bijective Market Mapping", () => {
-    it("tradeGenerateStaticParams() generates exact array of all 4 preset markets", async () => {
+    it("tradeGenerateStaticParams() generates exact array of all preset markets", async () => {
       const params = await tradeGenerateStaticParams();
       expect(Array.isArray(params)).toBe(true);
-      expect(params.length).toBe(4);
+      expect(params.length).toBe(5);
 
       const generatedSlugs = params.map((p) => p.market);
       const expectedSlugs = PRESET_MARKETS.map((m) => m.id);
 
-      expect(new Set(generatedSlugs).size).toBe(4);
+      expect(new Set(generatedSlugs).size).toBe(5);
       expect(generatedSlugs.sort()).toEqual(expectedSlugs.sort());
     });
 
-    it("marketsGenerateStaticParams() generates exact array of all 4 preset markets", async () => {
+    it("marketsGenerateStaticParams() generates exact array of all preset markets", async () => {
       const params = await marketsGenerateStaticParams();
       expect(Array.isArray(params)).toBe(true);
-      expect(params.length).toBe(4);
+      expect(params.length).toBe(5);
 
       const generatedSlugs = params.map((p) => p.id);
       const expectedSlugs = PRESET_MARKETS.map((m) => m.id);
 
-      expect(new Set(generatedSlugs).size).toBe(4);
+      expect(new Set(generatedSlugs).size).toBe(5);
       expect(generatedSlugs.sort()).toEqual(expectedSlugs.sort());
     });
 
@@ -191,9 +191,10 @@ describe("Empirical Challenger M1: Dynamic Routing, Normalization & Security Bou
 
     it("NotFound component renders clean 404 UI without emojis and conforms to design rules", () => {
       const html = renderToString(React.createElement(NotFound));
-      expect(html).toContain("404 - Ledger Entry Not Found");
-      expect(html).toContain("The requested page or contract path does not exist on this NivoraFi node.");
-      expect(html).toContain("Back to Markets");
+      expect(html).toContain("HTTP 404 · LEDGER_ENTRY_MISSING");
+      expect(html).toContain("Ledger Entry Not Found");
+      expect(html).toContain("The requested route or Soroban contract resource does not exist on this NivoraFi node.");
+      expect(html).toContain("Return to Desk");
       expect(html).toContain('href="/"');
       expect(html).not.toMatch(/[\u{1F300}-\u{1F9FF}]/u); // Zero emojis
       expect(html).not.toMatch(/#[0-9a-fA-F]{6}/); // Zero raw hex codes

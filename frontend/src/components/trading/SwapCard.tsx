@@ -34,7 +34,7 @@ interface SwapCardProps {
     simulateOnly?: boolean;
   }) => Promise<void>;
   onOpenDevDrawer?: () => void;
-  onSwitchTab?: (tab: "swap" | "mint" | "liquidity" | "redeem" | "rollover") => void;
+  onSwitchTab?: (tab: "swap" | "zap" | "mint" | "liquidity" | "redeem" | "rollover") => void;
 }
 
 export function SwapCard({
@@ -52,7 +52,16 @@ export function SwapCard({
     busyActions,
     busyAction,
     activeMarket.contracts.poolId,
-    ["swap_sy_for_pt", "swap_pt_for_sy", "swap_sy_for_yt", "swap_yt_for_sy"]
+    [
+      "swap_exact_sy_for_pt",
+      "swap_exact_pt_for_sy",
+      "swap_exact_sy_for_yt",
+      "swap_exact_yt_for_sy",
+      "swap_sy_for_pt",
+      "swap_pt_for_sy",
+      "swap_sy_for_yt",
+      "swap_yt_for_sy",
+    ]
   );
 
   const [swapDir, setSwapDir] = useState<SwapDirection>("sy_for_pt");
@@ -128,7 +137,8 @@ export function SwapCard({
         swapDir,
         amountValidation.amount,
         BigInt(Math.floor(Date.now() / 1000)),
-        slippageBps
+        slippageBps,
+        snapshot.pyIndex
       );
       return { quote: q, error: null };
     } catch (err) {
@@ -255,7 +265,9 @@ export function SwapCard({
             </span>
           </div>
           <span className="tabular-mono font-bold text-positive text-xs sm:text-sm">
-            +{snapshot && snapshot.impliedFixedApyPct != null ? snapshot.impliedFixedApyPct.toFixed(2) : "8.45"}%
+            {snapshot && snapshot.impliedFixedApyPct != null
+              ? `+${snapshot.impliedFixedApyPct.toFixed(2)}%`
+              : "--"}
           </span>
         </button>
 
@@ -280,7 +292,7 @@ export function SwapCard({
           <span className="tabular-mono font-bold text-accent text-xs sm:text-sm">
             {snapshot && snapshot.ytPriceInSy != null && snapshot.ytPriceInSy > 0
               ? `${Math.min(99, Math.round(1 / snapshot.ytPriceInSy))}x`
-              : "50x"}
+              : "--"}
           </span>
         </button>
       </div>

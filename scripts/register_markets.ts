@@ -25,7 +25,8 @@ interface MarketEntry {
   factoryId: number;
   name: string;
   symbol: string;
-  tenor: "30D" | "90D" | "180D" | "1Y";
+  sySymbol?: string;
+  tenor: "30D" | "90D" | "180D" | "1Y" | "MATURED" | "CUSTOM";
   maturity: number;
   maturityIso: string;
   decimals: number;
@@ -42,6 +43,7 @@ interface MarketEntry {
     pt: string;
     yt: string;
     blendPool: string;
+    slenderPool?: string;
   };
   isRegisteredOnChain: boolean;
   isVerifiedTestnet: boolean;
@@ -112,6 +114,11 @@ export function syncFrontendEnv(deployed: DeployedContractsJson) {
     `NEXT_PUBLIC_USDC_SAC_CONTRACT_ID="${deployed.market.underlyingAsset.sacContractId}"`,
     `NEXT_PUBLIC_XLM_SAC_CONTRACT_ID="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"`,
     `NEXT_PUBLIC_EURC_SAC_CONTRACT_ID="CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ"`,
+    ``,
+    `# Off-Chain Soroban Indexer BFF Proxy & Auth`,
+    `NEXT_PUBLIC_INDEXER_API_URL="/api/indexer"`,
+    `INDEXER_INTERNAL_URL="http://127.0.0.1:8765"`,
+    `INDEXER_API_SECRET="replace_with_32_byte_hex_secret"`,
   ];
 
   const content = lines.join("\n") + "\n";
@@ -176,12 +183,13 @@ export function buildRegisteredMarkets(): MarketEntry[] {
     },
     {
       id: "xlm-90d",
-      factoryId: 2,
+      factoryId: 3,
       name: "Pendle bXLM PT 90D",
       symbol: "PT-bXLM-90D",
+      sySymbol: "sy-bXLM",
       tenor: "90D",
-      maturity: 1801909055,
-      maturityIso: "2027-02-06T10:17:35Z",
+      maturity: 1801909056,
+      maturityIso: "2027-02-06T10:17:36Z",
       decimals: 7,
       scalarRoot: "8000000000000000000",
       initialAnchor: "1000000000000000000",
@@ -190,14 +198,69 @@ export function buildRegisteredMarkets(): MarketEntry[] {
         sacContractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
       },
       contracts: {
-        pool: "CCHCYSCFHXHUR2YA45AR6G4BYLLKZRZNVXLKSRFN7U5M2ZGJFYOL4PDL",
-        sy: "CC6UIRYJZ44GWPXKVAIYUZTSFXRBLVOVLV6BI5P2KELYFLYZ5JA44MAO",
-        pt: "CAXL7L7TUIIZJ5Q4FQLJY4RWQYBFAEL2VOLZ44B3BDCWPR7BUDZ6BNRC",
-        yt: "CBEO7A6DBTMLZXZCP643GQ6CINCK6K4I2H2YGP7VX3LDBBBUBMCHZ2HU",
+        pool: "CAQ24DFWIZ4GHS6ES6DX236R5EYMMS3DF3BBZE63NKEDGRGO4B7IRTZ4",
+        sy: "CAOUCLCZGM3WHGQ5S653WQHAMAMPP3UW4IC5VPUIW2XFVDAR3NFJ6B3W",
+        pt: "CCDD5IJCCNLAR2F5Y4663LFKKSQ32QMWGILFXY46E2SQ4SC3IKAZKRD3",
+        yt: "CC6VG5R454INCUWAS7K37H5H35Q4WNLH5Y72J4GLXRZ5R225XOFPD4ET",
+        blendPool: "CAGWGDLWNSSQEYJEE45JEBXAKNJCIHLNUK26TLFFPIWG6PPXHOTJ6DCH",
+      },
+      isRegisteredOnChain: true,
+      isVerifiedTestnet: true,
+    },
+    {
+      id: "usdc-matured",
+      factoryId: 4,
+      name: "Pendle bUSDC PT Matured",
+      symbol: "PT-bUSDC-MAT",
+      sySymbol: "sy-bUSDC",
+      tenor: "MATURED",
+      maturity: 1794455723,
+      maturityIso: "2026-11-12T03:55:23Z",
+      decimals: 7,
+      scalarRoot: "8000000000000000000",
+      initialAnchor: "1000000000000000000",
+      asset: {
+        code: "USDC",
+        issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        sacContractId: "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+      },
+      contracts: {
+        pool: "CASJWZ7LPCGL2QRVOQNXLH4NYX556XW5GB5BX73K6VC7M2L354DQOMH5",
+        sy: "CCOOCS3PQPCKGUHQU2HELFUQ6Y7VRNKFMCJIAIG4S2FSUGTRSKYQLWP5",
+        pt: "CDO45MQP43VNVBF5QAU6ORKDVEV4D5RM2EUIBUVORGBUCGABT23JSKQW",
+        yt: "CDKFTNVVAVU5CSRX3V7GOJYS53MBF52MBRB26M2S4Y34JZWOH7YJQOBY",
         blendPool: "CC7Q7FZ5YLBP3EOH635VYRC4EZDVTXVOMYZVP55Q6YIUSIXVHCJXETK6",
       },
       isRegisteredOnChain: true,
       isVerifiedTestnet: true,
+    },
+    {
+      id: "usdc-slender-90d",
+      factoryId: 5,
+      name: "Pendle sUSDC PT 90D (Slender)",
+      symbol: "PT-sUSDC-90D",
+      sySymbol: "sy-sUSDC",
+      tenor: "90D",
+      maturity: 1801909057,
+      maturityIso: "2027-02-06T10:17:37Z",
+      decimals: 7,
+      scalarRoot: "8000000000000000000",
+      initialAnchor: "1000000000000000000",
+      asset: {
+        code: "USDC",
+        issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        sacContractId: "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+      },
+      contracts: {
+        pool: process.env.NEXT_PUBLIC_SUSDC_POOL_CONTRACT_ID || "CACPNCMRPCYXT2IFNAIYY7DVTZARI2HFKIFMX2LBUTJ3YU6Z6QVBQDC5",
+        sy: process.env.NEXT_PUBLIC_SUSDC_SY_CONTRACT_ID || "CA5Q7BXAPRO3XULUEDTFVFZU2ZU2N7Z6CLZNQW7WDDKVJV6776DGHPCJ",
+        pt: process.env.NEXT_PUBLIC_SUSDC_PT_CONTRACT_ID || "CBNRSIS3ACCYL7ORHU6XP3YGMEBLZAJN3HOWSJIFAYBH7I7VIZUGSIK5",
+        yt: process.env.NEXT_PUBLIC_SUSDC_YT_CONTRACT_ID || "CCKMWQO2HNOP3L6CZU73KNEZLN3XVZ7EWAMCA77CAYY5FW3XZWO6DPCA",
+        blendPool: process.env.NEXT_PUBLIC_SLENDER_POOL_CONTRACT_ID || "CBZAIQZCWK6AWE3UHLC7EZUSDPBOS767LA5TAASK4SSLZRNAYHKPBYRS",
+        slenderPool: process.env.NEXT_PUBLIC_SLENDER_POOL_CONTRACT_ID || "CBZAIQZCWK6AWE3UHLC7EZUSDPBOS767LA5TAASK4SSLZRNAYHKPBYRS",
+      },
+      isRegisteredOnChain: Boolean(process.env.NEXT_PUBLIC_SUSDC_POOL_CONTRACT_ID),
+      isVerifiedTestnet: Boolean(process.env.NEXT_PUBLIC_SUSDC_POOL_CONTRACT_ID),
     },
   ];
 }
@@ -212,7 +275,7 @@ async function main() {
   deployed.contracts.market_factory = {
     contractId: "CCO4RP43OJPAP6H2NLVF4RLMQ5OSHRG2NJC3HAQU2L4KXCD5NFJS57JL",
     wasmHash: "f60e1351b1ac6daa49c854d4b715d862b81c9210289b70cd79a9665f7214db75",
-    wasmSizeBytes: 26160,
+    wasmSizeBytes: 37524,
     deployTx: "0a5a02383fabb9bb0bf37cee04232ab567e26828262ff9ee957099f54767e4cd",
     initTx: "5748888493333624e4ae4435ef944a0ced59e60418f70d77879279c2598ff92a",
     explorerUrl: "https://stellar.expert/explorer/testnet/contract/CCO4RP43OJPAP6H2NLVF4RLMQ5OSHRG2NJC3HAQU2L4KXCD5NFJS57JL",

@@ -30,9 +30,9 @@ import { AnalyticsCard } from "@/components/trading/AnalyticsCard";
 import {
   MarketContext,
   MarketProvider,
-  buildFallbackSnapshot,
   useMarket,
 } from "@/context/MarketContext";
+import { LiveMarketSnapshot } from "@/lib/stellar";
 import { WalletProvider, useWallet } from "@/context/WalletProvider";
 import { PRESET_MARKETS, getMarketDefinition, findMarketById } from "@/lib/markets";
 
@@ -108,13 +108,17 @@ describe("Empirical Challenger M1: Context Elevation, Pass-Through Guard & SSR S
       expect(consumer3MarketCount).toBe(PRESET_MARKETS.length);
     });
 
-    it("1.3 Context metrics and snapshots are populated on elevated provider mount", () => {
-      let capturedSnapshot: ReturnType<typeof buildFallbackSnapshot> | null = null;
+    it("1.3 Context initializes honestly with null activeSnapshot and zeroed loading metrics on mount", () => {
+      let capturedSnapshot: LiveMarketSnapshot | null = null;
+      let capturedLoading = false;
+      let capturedError: string | null = "unexpected";
       let capturedMetricsCount = 0;
 
       function ContextInspector() {
         const ctx = useMarket();
         capturedSnapshot = ctx.activeSnapshot;
+        capturedLoading = ctx.loadingSnapshot;
+        capturedError = ctx.snapshotError;
         capturedMetricsCount = Object.keys(ctx.marketMetrics).length;
         return <div id="inspector">{ctx.activeMarket.name}</div>;
       }
@@ -128,9 +132,9 @@ describe("Empirical Challenger M1: Context Elevation, Pass-Through Guard & SSR S
       );
 
       expect(html).toContain("Pendle bUSDC PT 90D");
-      expect(capturedSnapshot).not.toBeNull();
-      expect(capturedSnapshot!.ptPriceInSy).toBe(0.98);
-      expect(capturedSnapshot!.impliedFixedApyPct).toBe(8.45);
+      expect(capturedSnapshot).toBeNull();
+      expect(capturedLoading).toBe(true);
+      expect(capturedError).toBeNull();
       expect(capturedMetricsCount).toBe(PRESET_MARKETS.length);
     });
   });
@@ -363,11 +367,42 @@ describe("Empirical Challenger M1: Context Elevation, Pass-Through Guard & SSR S
 
     it("3.4 renderToString on LandingView with null, active, and matured snapshots", () => {
       const market = PRESET_MARKETS[0];
-      const activeSnapshot = buildFallbackSnapshot(market);
       const maturedMarket = PRESET_MARKETS.find((m) => m.id === "usdc-matured")!;
-      const maturedSnapshot = buildFallbackSnapshot(maturedMarket);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const makeSnapshot = (m: typeof market, isMatured: boolean): LiveMarketSnapshot => ({
+        state: {
+          total_pt_reserve: 4_000_0000000n,
+          total_sy_reserve: 3_200_0000000n,
+          total_lp_supply: 3_500_0000000n,
+          scalar_root: 8_000000000000000000n,
+          initial_anchor: 1_000000000000000000n,
+          annual_fee_rate: 3_000000000000000n,
+          protocol_fee_bps: 2000n,
+          fee_recipient: m.contracts.poolId,
+          maturity: BigInt(m.maturity),
+          maturity_index: 1_000000000n,
+          is_settled: isMatured,
+        },
+        latestLedger: 123456,
+        nowSeconds: nowSec,
+        daysToMaturity: isMatured ? 0 : 90,
+        isMatured,
+        blendExchangeRate: 1_001000000n,
+        ammExchangeRateWad: 1_020408163265306122n,
+        ptPriceInSy: isMatured ? 1.0 : 0.98,
+        ytPriceInSy: isMatured ? 0.0 : 0.02,
+        impliedFixedApyPct: isMatured ? 0 : 8.45,
+        ptTotalSupply: 4_000_0000000n,
+        ytTotalSupply: 4_000_0000000n,
+        syTotalSupply: 7_200_0000000n,
+        ptProportionPct: 55.56,
+      });
 
-      const snapshots = [null, activeSnapshot, maturedSnapshot];
+      const snapshots = [
+        null,
+        makeSnapshot(market, false),
+        makeSnapshot(maturedMarket, true),
+      ];
 
       for (const snap of snapshots) {
         let html = "";
@@ -412,18 +447,19 @@ describe("Empirical Challenger M1: Context Elevation, Pass-Through Guard & SSR S
   // Suite 4: Server Components Static Generation & 404 Guards
   // ==========================================================================
   describe("Suite 4: Server Components Static Generation & 404 Guards", () => {
-    it("4.1 generateStaticParams returns all 4 preset markets for both /trade and /markets routes", async () => {
+    it("4.1 generateStaticParams returns all 5 preset markets for both /trade and /markets routes", async () => {
       const tradeParams = await generateTradeStaticParams();
       const marketParams = await generateMarketStaticParams();
 
-      expect(tradeParams.length).toBe(4);
-      expect(marketParams.length).toBe(4);
+      expect(tradeParams.length).toBe(5);
+      expect(marketParams.length).toBe(5);
 
       const expectedMarkets = [
         "usdc-90d",
         "usdc-30d",
         "xlm-90d",
         "usdc-matured",
+        "usdc-slender-90d",
       ];
 
       expect(tradeParams.map((p) => p.market)).toEqual(expectedMarkets);

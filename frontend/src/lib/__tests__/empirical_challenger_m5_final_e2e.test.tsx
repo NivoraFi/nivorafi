@@ -362,7 +362,7 @@ describe("Milestone 5 Final Challenge: Overarching E2E Integration Stress Suite"
       const built = buildActionArgs(action);
       expect(built.contractId).toBe(canonicalFactoryId);
       expect(built.method).toBe("rollover_to_pt");
-      expect(built.args.length).toBe(6);
+      expect(built.args.length).toBe(7);
 
       // Verify native conversion
       const nativeArgs = built.args.map((sc) => scValToNative(sc));
@@ -388,7 +388,7 @@ describe("Milestone 5 Final Challenge: Overarching E2E Integration Stress Suite"
       const built = buildActionArgs(action);
       expect(built.contractId).toBe(canonicalFactoryId);
       expect(built.method).toBe("rollover_to_py");
-      expect(built.args.length).toBe(6);
+      expect(built.args.length).toBe(7);
 
       const nativeArgs = built.args.map((sc) => scValToNative(sc));
       expect(nativeArgs[0]).toBe(dummyCaller);

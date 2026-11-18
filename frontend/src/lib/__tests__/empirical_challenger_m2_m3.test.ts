@@ -79,7 +79,7 @@ describe("Empirical Challenger: AMM Slippage Math Soundness", () => {
 
   it("empirically verifies applySlippage across all 4 AMM swap directions in quoteSwapLocal", () => {
     const state: MarketStateRaw = {
-      total_pt_reserve: 100_000n * WAD,
+      total_pt_reserve: 120_000n * WAD,
       total_sy_reserve: 100_000n * WAD,
       total_lp_supply: 100_000n * WAD,
       scalar_root: 10n * WAD,

@@ -427,8 +427,8 @@ describe("Empirical Challenger M2.1: Adversarial Stress Suite (Chart, Bento Card
         })
       );
 
-      // In line 70: Math.round(1 / ytPrice) guarded by ytPrice > 0, fallback to 0
-      expect(html).toContain("0x");
+      // Guarded by ytPrice > 0, renders honest placeholder instead of Infinity/NaN
+      expect(html).toContain("--");
       expect(html).not.toContain("Infinity");
       expect(html).not.toContain("NaN");
     });

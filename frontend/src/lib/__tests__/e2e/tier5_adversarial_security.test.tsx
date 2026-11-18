@@ -50,7 +50,7 @@ import {
   LiveUserPortfolio,
 } from "../../stellar";
 import { getBlendFallbackRate } from "../../blend";
-import { buildFallbackSnapshot, MarketProvider } from "@/context/MarketContext";
+import { MarketContext, deriveMetricsFromSnapshot, MarketProvider } from "@/context/MarketContext";
 import { TopNav, ViewMode } from "@/components/TopNav";
 import { MobileNavDrawer } from "@/components/navigation/MobileNavDrawer";
 import { NetworkBadge } from "@/components/navigation/NetworkBadge";
@@ -75,28 +75,6 @@ mock.module("@/context/WalletProvider", () => ({
   useWallet: () => currentWalletState,
   WalletProvider: ({ children }: { children: React.ReactNode }) => children,
   isNetworkMismatch: () => currentWalletState.walletNetworkMismatch,
-}));
-
-mock.module("@/context/MarketContext", () => ({
-  useMarket: () => ({
-    markets: PRESET_MARKETS,
-    activeMarket: currentActiveMarket,
-    activeMarketId: currentActiveMarket.id,
-    selectMarket: (id: string) => {
-      selectMarketCallLog.push(id);
-      const found = PRESET_MARKETS.find((m) => m.id === id);
-      if (found) currentActiveMarket = found;
-    },
-    activeSnapshot: createMockSnapshot(currentActiveMarket),
-    activePortfolio: createMockPortfolio(currentActiveMarket),
-    loadingSnapshot: false,
-    loadingPortfolio: false,
-    marketMetrics: {},
-    refreshActiveMarket: async () => {},
-    refreshAllMetrics: async () => {},
-  }),
-  buildFallbackSnapshot,
-  MarketProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 describe("E2E Test Suite — Tier 5: White-Box Adversarial Challenger", () => {
@@ -124,17 +102,25 @@ describe("E2E Test Suite — Tier 5: White-Box Adversarial Challenger", () => {
       expect(decodedHost).toBe("Soroban ContractError #3: Signer is not authorized for this contract action.");
     });
 
-    it("1.2: builds deterministic fallback snapshot when RPC simulation fails or times out", () => {
+    it("1.2: derives honest zero metrics for zero-liquidity pools without fabricating synthetic reserves", () => {
       for (const market of PRESET_MARKETS) {
-        const fallback = buildFallbackSnapshot(market);
-        expect(fallback).toBeDefined();
-        expect(fallback.state).toBeDefined();
-        expect(fallback.state.total_pt_reserve).toBe(80_000_0000000n);
-        expect(fallback.state.total_sy_reserve).toBe(40_000_0000000n);
-        expect(fallback.blendExchangeRate).toBe(1_001000000n);
-        expect(fallback.latestLedger).toBe(0);
-        expect(typeof fallback.impliedFixedApyPct).toBe("number");
-        expect(fallback.isMatured).toBe(market.id === "usdc-matured");
+        const snap = createMockSnapshot(market);
+        const zeroSnap: LiveMarketSnapshot = {
+          ...snap,
+          state: {
+            ...snap.state,
+            total_pt_reserve: 0n,
+            total_sy_reserve: 0n,
+            total_lp_supply: 0n,
+          },
+        };
+        const metrics = deriveMetricsFromSnapshot(market, zeroSnap);
+        expect(metrics.marketId).toBe(market.id);
+        expect(metrics.ptReserve).toBe(0n);
+        expect(metrics.syReserve).toBe(0n);
+        expect(metrics.tvlSy).toBe(0n);
+        expect(metrics.tvlUsd).toBe(0);
+        expect(metrics.isLoading).toBe(false);
       }
     });
 
@@ -343,11 +329,11 @@ describe("E2E Test Suite — Tier 5: White-Box Adversarial Challenger", () => {
 
     it("3.4: verifies generateStaticParams contract for /trade/[market] and /markets/[id]", async () => {
       const tradeParams = await generateTradeStaticParams();
-      expect(tradeParams).toHaveLength(4);
+      expect(tradeParams).toHaveLength(5);
       expect(tradeParams.map((p) => p.market)).toEqual(PRESET_MARKETS.map((m) => m.id));
 
       const marketParams = await generateMarketStaticParams();
-      expect(marketParams).toHaveLength(4);
+      expect(marketParams).toHaveLength(5);
       expect(marketParams.map((p) => p.id)).toEqual(PRESET_MARKETS.map((m) => m.id));
     });
 

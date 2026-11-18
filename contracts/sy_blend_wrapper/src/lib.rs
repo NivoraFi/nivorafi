@@ -17,6 +17,43 @@ mod test;
 #[contract]
 pub struct StandardizedYield;
 
+impl StandardizedYield {
+    fn init_internal(
+        env: &Env,
+        auth_caller: &Address,
+        admin: &Address,
+        underlying_asset: &Address,
+        blend_pool: &Address,
+    ) -> Result<(), ContractError> {
+        if env.storage().instance().has(&DataKey::Initialized) {
+            return Err(ContractError::AlreadyInitialized);
+        }
+        auth_caller.require_auth();
+        if *blend_pool == *underlying_asset || *blend_pool == env.current_contract_address() {
+            return Err(ContractError::IdenticalAddresses);
+        }
+
+        let (decimals, sym_buf, sym_len) =
+            common::metadata::resolve_token_metadata(env, underlying_asset);
+        let sym_slice = &sym_buf[..sym_len];
+        let name = common::metadata::join3(env, b"Standardized Yield Blend ", sym_slice, b"");
+        let symbol = common::metadata::join3(env, b"sy-b", sym_slice, b"");
+
+        env.storage().instance().set(&DataKey::Admin, admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::UnderlyingAsset, underlying_asset);
+        env.storage().instance().set(&DataKey::BlendPool, blend_pool);
+        env.storage().instance().set(&DataKey::TotalSupply, &0i128);
+        env.storage().instance().set(&DataKey::Decimals, &decimals);
+        env.storage().instance().set(&DataKey::Name, &name);
+        env.storage().instance().set(&DataKey::Symbol, &symbol);
+        env.storage().instance().set(&DataKey::Initialized, &true);
+        bump_instance_ttl(env, 0);
+        Ok(())
+    }
+}
+
 #[contractimpl]
 impl StandardizedYield {
     pub fn initialize(
@@ -25,29 +62,17 @@ impl StandardizedYield {
         underlying_asset: Address,
         blend_pool: Address,
     ) -> Result<(), ContractError> {
-        if env.storage().instance().has(&DataKey::Initialized) {
-            return Err(ContractError::AlreadyInitialized);
-        }
-        admin.require_auth();
-        env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage()
-            .instance()
-            .set(&DataKey::UnderlyingAsset, &underlying_asset);
-        env.storage()
-            .instance()
-            .set(&DataKey::BlendPool, &blend_pool);
-        env.storage().instance().set(&DataKey::TotalSupply, &0i128);
-        env.storage().instance().set(&DataKey::Decimals, &7u32);
-        env.storage().instance().set(
-            &DataKey::Name,
-            &String::from_str(&env, "Standardized Yield Blend USDC"),
-        );
-        env.storage()
-            .instance()
-            .set(&DataKey::Symbol, &String::from_str(&env, "sy-bUSDC"));
-        env.storage().instance().set(&DataKey::Initialized, &true);
-        bump_instance_ttl(&env, 0);
-        Ok(())
+        Self::init_internal(&env, &admin, &admin, &underlying_asset, &blend_pool)
+    }
+
+    pub fn initialize_from_factory(
+        env: Env,
+        deployer: Address,
+        admin: Address,
+        underlying_asset: Address,
+        blend_pool: Address,
+    ) -> Result<(), ContractError> {
+        Self::init_internal(&env, &deployer, &admin, &underlying_asset, &blend_pool)
     }
 
     pub fn deposit(

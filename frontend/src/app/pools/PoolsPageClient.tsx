@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -10,7 +10,7 @@ import {
   Search,
   TrendingUp,
 } from "lucide-react";
-import { TopNav } from "@/components/TopNav";
+import { TopNav, ViewMode } from "@/components/TopNav";
 import { TestnetFaucetModal } from "@/components/faucet/TestnetFaucetModal";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import {
@@ -20,16 +20,21 @@ import {
 } from "@/components/ui/motion-primitives";
 import { TokenIcon } from "@/components/ui/TokenIcon";
 import { useMarket } from "@/context/MarketContext";
+import { useWallet } from "@/context/WalletProvider";
+import { useTxToast } from "@/hooks/useTxToast";
 import {
   AssetCategory,
   deriveMarketStatus,
-  getMarketBaselineMetrics,
   getMarketCategory,
   getMarketSwapFeeApy,
   getMarketUnderlyingApy,
-  MarketDefinition,
   PRESET_MARKETS,
 } from "@/lib/markets";
+import {
+  prepareChangeTrustUsdcTx,
+  requestFriendbotFunding,
+  submitSignedHorizonTx,
+} from "@/lib/stellar";
 
 function formatReserveAmount(value: number): string {
   if (value > 0 && value < 100) {
@@ -58,43 +63,114 @@ function useSafeRouter() {
   }
 }
 
-export function PoolsPageClient() {
+export interface PoolsPageClientProps {
+  marketMetricsOverride?: Record<string, import("@/lib/markets").MarketSummaryMetrics>;
+}
+
+export function PoolsPageClient({ marketMetricsOverride }: PoolsPageClientProps = {}) {
   const router = useSafeRouter();
-  const { markets = PRESET_MARKETS, marketMetrics = {}, selectMarket = () => {} } = useMarket();
+  const { address, signTransactionXdr } = useWallet();
+  const {
+    markets = PRESET_MARKETS,
+    activeMarketId,
+    activePortfolio,
+    loadingSnapshot,
+    marketMetrics: ctxMarketMetrics = {},
+    selectMarket = () => {},
+    refreshAllMetrics,
+  } = useMarket();
+  const marketMetrics = marketMetricsOverride ?? ctxMarketMetrics;
+  const { notifyTxPending, notifyTxSuccess, notifyTxError } = useTxToast();
   const [isFaucetOpen, setIsFaucetOpen] = useState(false);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<AssetCategory>("All");
   const [searchQuery, setSearchQuery] = useState("");
 
+  const handleSwitchView = useCallback(
+    (view: ViewMode) => {
+      const targetUrl =
+        view === "trade"
+          ? `/trade/${activeMarketId || "usdc-90d"}`
+          : view === "portfolio"
+          ? "/portfolio"
+          : "/";
+      if (router) {
+        try {
+          router.push(targetUrl);
+          return;
+        } catch {}
+      }
+      if (typeof window !== "undefined") {
+        window.location.href = targetUrl;
+      }
+    },
+    [router, activeMarketId]
+  );
+
+  const handleRefresh = useCallback(async () => {
+    await refreshAllMetrics();
+  }, [refreshAllMetrics]);
+
+  const handleFundXlm = useCallback(async () => {
+    if (!address) return;
+    setBusyAction("Requesting Friendbot XLM...");
+    const toastId = notifyTxPending("Friendbot XLM", "Requesting 10,000 testnet XLM...");
+    try {
+      await requestFriendbotFunding(address);
+      notifyTxSuccess(toastId, "", "Friendbot XLM", "10,000 Testnet XLM credited to wallet.");
+      await refreshAllMetrics();
+    } catch (err) {
+      notifyTxError(toastId, err, undefined, "Friendbot XLM");
+    } finally {
+      setBusyAction(null);
+    }
+  }, [address, refreshAllMetrics, notifyTxPending, notifyTxSuccess, notifyTxError]);
+
+  const handleAddUsdcTrustline = useCallback(async () => {
+    if (!address) return;
+    setBusyAction("Signing USDC Trustline...");
+    const toastId = notifyTxPending("USDC Trustline", "Signing USDC trustline on Horizon...");
+    try {
+      const unsignedXdr = await prepareChangeTrustUsdcTx(address);
+      const signedXdr = await signTransactionXdr(unsignedXdr);
+      setBusyAction("Submitting USDC Trustline...");
+      const res = await submitSignedHorizonTx(signedXdr);
+      notifyTxSuccess(toastId, res.hash, "USDC Trustline", "USDC trustline established on Testnet.");
+      await refreshAllMetrics();
+    } catch (err) {
+      notifyTxError(toastId, err, (err as any)?.txHash, "USDC Trustline");
+    } finally {
+      setBusyAction(null);
+    }
+  }, [address, signTransactionXdr, refreshAllMetrics, notifyTxPending, notifyTxSuccess, notifyTxError]);
+
   const nowSeconds = Math.floor(Date.now() / 1000);
 
-  // Aggregate metrics summary for the 3-Card KPI Strip
+  // Aggregate live metrics summary for the 3-Card KPI Strip (zero synthetic baselines)
   const { totalTvlUsd, peakLpApy, activeCount } = useMemo(() => {
     let tvl = 0;
     let peakApy = 0;
     let active = 0;
 
     for (const m of markets) {
-      const met = {
-        ...getMarketBaselineMetrics(m, nowSeconds),
-        ...marketMetrics[m.id],
-      };
-      tvl += met.tvlUsd;
+      const met = marketMetrics[m.id];
+      tvl += met?.tvlUsd ?? 0;
 
       const isMatured = deriveMarketStatus(m.maturity, nowSeconds) === "MATURED";
       if (!isMatured) {
         active++;
         const underlyingApy = getMarketUnderlyingApy(m);
         const feeApy = getMarketSwapFeeApy(m, false);
-        const impliedApy = met.impliedApyPct;
+        const impliedApy = met?.impliedApyPct ?? 0;
         const lpApy = underlyingApy + feeApy + impliedApy * 0.5;
         if (lpApy > peakApy) peakApy = lpApy;
       }
     }
 
     return {
-      totalTvlUsd: tvl > 0 ? tvl : 72000,
-      peakLpApy: peakApy > 0 ? peakApy : 11.73,
-      activeCount: active > 0 ? active : markets.length,
+      totalTvlUsd: tvl,
+      peakLpApy: peakApy,
+      activeCount: active,
     };
   }, [markets, marketMetrics, nowSeconds]);
 
@@ -167,15 +243,15 @@ export function PoolsPageClient() {
           <TopNav
             viewMode="trade"
             activeTab="pools"
-            onToggleView={() => {}}
-            onRefresh={() => {}}
-            refreshing={false}
-            onFundXlm={() => {}}
-            onAddUsdcTrustline={() => {}}
+            onToggleView={handleSwitchView}
+            onRefresh={() => void handleRefresh()}
+            refreshing={loadingSnapshot}
+            onFundXlm={() => void handleFundXlm()}
+            onAddUsdcTrustline={() => void handleAddUsdcTrustline()}
             onOpenFaucet={() => setIsFaucetOpen(true)}
-            usdcTrustlineExists={true}
-            accountExists={true}
-            busyAction={null}
+            usdcTrustlineExists={activePortfolio ? activePortfolio.usdcTrustlineExists : null}
+            accountExists={activePortfolio ? activePortfolio.accountExists : null}
+            busyAction={busyAction}
           />
         </DirectionalReveal>
 
@@ -327,31 +403,30 @@ export function PoolsPageClient() {
                       </tr>
                     ) : (
                       filteredMarkets.map((m) => {
-                        const metrics = {
-                          ...getMarketBaselineMetrics(m, nowSeconds),
-                          ...marketMetrics[m.id],
-                        };
+                        const metrics = marketMetrics[m.id];
                         const status = deriveMarketStatus(m.maturity, nowSeconds);
                         const isMatured = status === "MATURED";
 
                         const underlyingApy = getMarketUnderlyingApy(m);
                         const feeApy = getMarketSwapFeeApy(m, isMatured);
-                        const impliedApy = isMatured ? 0 : metrics.impliedApyPct;
+                        const impliedApy = isMatured ? 0 : (metrics?.impliedApyPct ?? 0);
                         const totalLpApy = isMatured ? 0 : Math.round((underlyingApy + feeApy + impliedApy * 0.5) * 100) / 100;
 
-                        const tvlUsd = metrics.tvlUsd;
-                        const ptReserve =
-                          typeof metrics.ptReserve === "bigint"
+                        const tvlUsd = metrics?.tvlUsd ?? 0;
+                        const ptReserve = metrics
+                          ? typeof metrics.ptReserve === "bigint"
                             ? Number(metrics.ptReserve) / 1e7
-                            : Number(metrics.ptReserve);
-                        const syReserve =
-                          typeof metrics.syReserve === "bigint"
+                            : Number(metrics.ptReserve)
+                          : 0;
+                        const syReserve = metrics
+                          ? typeof metrics.syReserve === "bigint"
                             ? Number(metrics.syReserve) / 1e7
-                            : Number(metrics.syReserve);
+                            : Number(metrics.syReserve)
+                          : 0;
 
                         const totalReserves = ptReserve + syReserve;
-                        const ptSharePct = totalReserves > 0 ? Math.round((ptReserve / totalReserves) * 100) : 67;
-                        const sySharePct = 100 - ptSharePct;
+                        const ptSharePct = totalReserves > 0 ? Math.round((ptReserve / totalReserves) * 100) : 0;
+                        const sySharePct = totalReserves > 0 ? 100 - ptSharePct : 0;
 
                         const maturityDate = new Date(m.maturity * 1000).toISOString().split("T")[0];
                         const daysRemaining = Math.max(0, Math.ceil((m.maturity - nowSeconds) / 86400));
@@ -380,7 +455,7 @@ export function PoolsPageClient() {
                                       onClick={() => selectMarket(m.id)}
                                       className="font-semibold text-sm text-ink group-hover:text-accent transition-colors"
                                     >
-                                      {`PT-${m.asset.code} / SY-${m.asset.code}`}
+                                      {`${m.ptSymbol} / ${m.sySymbol}`}
                                     </Link>
                                     <span className="rounded-full bg-glass-card border border-glass-rim px-2 py-0.5 text-[10px] font-semibold text-ink-secondary">
                                       {m.tenor}

@@ -209,8 +209,8 @@ describe("Milestone 4 Test Suite: SEO, OpenGraph & Dynamic Metadata Engine", () 
   // Tier 3: Market-Specific Metadata Generation (buildMarketMetadata)
   // =========================================================================
   describe("Tier 3: Market-Specific Dynamic Metadata (buildMarketMetadata)", () => {
-    it("3.1 generates valid market-specific metadata across all 4 preset markets in PRESET_MARKETS", () => {
-      expect(PRESET_MARKETS.length).toBe(4);
+    it("3.1 generates valid market-specific metadata across all preset markets in PRESET_MARKETS", () => {
+      expect(PRESET_MARKETS.length).toBe(5);
 
       for (const market of PRESET_MARKETS) {
         const meta = buildMarketMetadata(market.id, "trade");

@@ -93,6 +93,23 @@ pub fn set_sy_for_asset(env: &Env, asset: &Address, sy: &Address) {
     bump_persistent_ttl(env, &key, 0);
 }
 
+pub fn is_whitelisted_creator(env: &Env, creator: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::WhitelistedCreator(creator.clone()))
+        .unwrap_or(false)
+}
+
+pub fn set_creator_whitelist(env: &Env, creator: &Address, allowed: bool) {
+    let key = DataKey::WhitelistedCreator(creator.clone());
+    if allowed {
+        env.storage().persistent().set(&key, &true);
+        bump_persistent_ttl(env, &key, 0);
+    } else {
+        env.storage().persistent().remove(&key);
+    }
+}
+
 pub fn save_market(env: &Env, meta: &MarketMetadata) {
     let id_key = DataKey::MarketById(meta.id);
     let key_key = DataKey::MarketByKey(MarketKey {

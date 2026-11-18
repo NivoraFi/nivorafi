@@ -47,22 +47,17 @@ export function AnalyticsCard({
   const totalSwaps = activeAnalytics ? activeAnalytics.totalSwapsCount.toLocaleString() : "--";
   const daysLeftStr = daysToMaturity !== undefined ? `${daysToMaturity.toFixed(1)}d` : "--";
 
-  // 3. Filtered Sparkline History based on timeframe (with cached fallback to prevent unmount/sync flash)
+  // 3. Filtered Sparkline History based on timeframe
   const sparklineData = useMemo(() => {
     const hist = activeAnalytics?.apyHistory;
     if (!hist || hist.length === 0) {
-      if (lastValidSparklineRef.current.length > 0) {
+      if (loading && lastValidSparklineRef.current.length > 0) {
         return lastValidSparklineRef.current;
       }
-      if (!activeAnalytics) return [];
-      const now = Math.floor(Date.now() / 1000);
-      const baseApy = activeAnalytics.impliedApyPct > 0 ? activeAnalytics.impliedApyPct : 5.42;
-      const fallbackPts = Array.from({ length: 24 }, (_, i) => ({
-        timestamp: now - (23 - i) * 3600,
-        value: baseApy,
-      }));
-      lastValidSparklineRef.current = fallbackPts;
-      return fallbackPts;
+      if (!loading) {
+        lastValidSparklineRef.current = [];
+      }
+      return [];
     }
 
     const now = Math.floor(Date.now() / 1000);
@@ -85,7 +80,7 @@ export function AnalyticsCard({
       lastValidSparklineRef.current = mapped;
     }
     return mapped;
-  }, [activeAnalytics, activeTf]);
+  }, [activeAnalytics, activeTf, loading]);
 
   const timeframes: AnalyticsTimeframe[] = ["24H", "7D", "30D", "ALL"];
 

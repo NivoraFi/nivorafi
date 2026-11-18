@@ -14,7 +14,9 @@ common = { workspace = true }
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 mock_blend = { workspace = true }
+mock_slender = { workspace = true }
 sy_blend_wrapper = { workspace = true }
+sy_slender_wrapper = { workspace = true }
 pt_token = { workspace = true }
 yt_token = { workspace = true }
 yield_pool = { workspace = true }

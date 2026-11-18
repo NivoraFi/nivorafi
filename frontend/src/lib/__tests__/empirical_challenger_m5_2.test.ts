@@ -303,8 +303,8 @@ describe("Empirical Challenger M5.2: 1:1 Settlement, Rollover Math, ScVal Encodi
       expect(built.method).toBe("rollover_to_pt");
       expect(built.label).toBe("Atomic Rollover to Target PT");
 
-      // 2. Exact argument count (6 arguments required by Soroban contract)
-      expect(built.args.length).toBe(6);
+      // 2. Exact argument count (7 arguments required by Soroban contract including deadline)
+      expect(built.args.length).toBe(7);
 
       // 3. Verify argument 0: caller (Address ScVal)
       expect(scValToNative(built.args[0])).toBe(caller);
@@ -325,6 +325,7 @@ describe("Empirical Challenger M5.2: 1:1 Settlement, Rollover Math, ScVal Encodi
       // 8. Verify argument 5: min_target_pt (i128 ScVal)
       expect(scValToNative(built.args[5])).toBe(minTargetPt);
       expect(typeof scValToNative(built.args[5])).toBe("bigint");
+      expect(typeof scValToNative(built.args[6])).toBe("bigint");
     });
 
     it("empirically verifies buildActionArgs for rollover_to_py: argument count, method, and ScVal types", () => {
@@ -349,8 +350,8 @@ describe("Empirical Challenger M5.2: 1:1 Settlement, Rollover Math, ScVal Encodi
       expect(built.method).toBe("rollover_to_py");
       expect(built.label).toBe("Atomic Rollover to Target LP (PT+YT)");
 
-      // 2. Exact argument count (6 arguments required by Soroban contract)
-      expect(built.args.length).toBe(6);
+      // 2. Exact argument count (7 arguments required by Soroban contract including deadline)
+      expect(built.args.length).toBe(7);
 
       // 3. Verify argument deserialization
       expect(scValToNative(built.args[0])).toBe(caller);
@@ -359,6 +360,7 @@ describe("Empirical Challenger M5.2: 1:1 Settlement, Rollover Math, ScVal Encodi
       expect(scValToNative(built.args[3])).toBe(targetPool);
       expect(scValToNative(built.args[4])).toBe(ptAmount);
       expect(scValToNative(built.args[5])).toBe(minNewShares);
+      expect(typeof scValToNative(built.args[6])).toBe("bigint");
     });
 
     it("empirically verifies buildActionArgs for redeem_pt_post_maturity and redeem_pt_to_btoken", () => {

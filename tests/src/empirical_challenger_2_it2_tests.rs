@@ -186,7 +186,8 @@ fn test_empirical_parity_convergence_boundary_exhaustive() {
     let seed_sy = 5_000_000_000i128;
     f.usdc_admin_client.mint(&f.user1, &seed_sy);
     f.sy_client.deposit(&f.user1, &f.user1, &seed_sy);
-    f.pool_client.mint_py(&f.user1, &f.user1, &2_000_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &2_000_000_000, &f.maturity);
     f.pool_client
         .add_liquidity(&f.user1, &f.user1, &2_000_000_000, &1_500_000_000, &1);
 
@@ -196,6 +197,7 @@ fn test_empirical_parity_convergence_boundary_exhaustive() {
 
     // Fast-forward to EXACT maturity
     f.env.ledger().set_timestamp(f.maturity);
+    let dl_mat = f.maturity + 3600;
 
     // Rate is exactly 1.0 WAD
     let e_at_mat = f.pool_client.get_exchange_rate();
@@ -207,26 +209,28 @@ fn test_empirical_parity_convergence_boundary_exhaustive() {
     // All 4 swaps MUST cleanly reject with MarketAlreadyMatured at maturity
     let err_swap1 = f
         .pool_client
-        .try_swap_exact_pt_for_sy(&f.user1, &f.user1, &10_000, &1);
+        .try_swap_exact_pt_for_sy(&f.user1, &f.user1, &10_000, &1, &dl_mat);
     assert_eq!(err_swap1, Err(Ok(ContractError::MarketAlreadyMatured)));
 
     let err_swap2 = f
         .pool_client
-        .try_swap_exact_sy_for_pt(&f.user1, &f.user1, &10_000, &1);
+        .try_swap_exact_sy_for_pt(&f.user1, &f.user1, &10_000, &1, &dl_mat);
     assert_eq!(err_swap2, Err(Ok(ContractError::MarketAlreadyMatured)));
 
     let err_swap3 = f
         .pool_client
-        .try_swap_exact_sy_for_yt(&f.user1, &f.user1, &10_000, &1);
+        .try_swap_exact_sy_for_yt(&f.user1, &f.user1, &10_000, &1, &dl_mat);
     assert_eq!(err_swap3, Err(Ok(ContractError::MarketAlreadyMatured)));
 
     let err_swap4 = f
         .pool_client
-        .try_swap_exact_yt_for_sy(&f.user1, &f.user1, &10_000, &1);
+        .try_swap_exact_yt_for_sy(&f.user1, &f.user1, &10_000, &1, &dl_mat);
     assert_eq!(err_swap4, Err(Ok(ContractError::MarketAlreadyMatured)));
 
     // mint_py and redeem_py MUST reject with MarketAlreadyMatured
-    let err_mint = f.pool_client.try_mint_py(&f.user1, &f.user1, &10_000);
+    let err_mint = f
+        .pool_client
+        .try_mint_py(&f.user1, &f.user1, &10_000, &dl_mat);
     assert_eq!(err_mint, Err(Ok(ContractError::MarketAlreadyMatured)));
 
     let err_redeem_py = f.pool_client.try_redeem_py(&f.user1, &f.user1, &10_000);
@@ -329,7 +333,8 @@ fn test_empirical_negative_yield_rejection_all_paths_exhaustive() {
 
     // 1. LIQUIDITY PATH 1 (INITIAL ADD_LIQUIDITY): PT < SY within valid proportions
     // User1 mints PY so they hold PT tokens to attempt the skewed deposit
-    f.pool_client.mint_py(&f.user1, &f.user1, &1_000_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &1_000_000_000, &f.maturity);
 
     // 40,000 PT and 60,000 SY -> proportion = 40% in [4%, 96%], but PT < SY
     let err_init_add =
@@ -342,20 +347,22 @@ fn test_empirical_negative_yield_rejection_all_paths_exhaustive() {
     );
 
     // Initial seed with barely positive yield: 1,005,000,000 PT and 1,000,000,000 SY (PT > SY)
-    f.pool_client.mint_py(&f.user1, &f.user1, &1_005_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &1_005_000_000, &f.maturity);
     f.pool_client
         .add_liquidity(&f.user1, &f.user1, &1_005_000_000, &1_000_000_000, &1);
 
     f.usdc_admin_client.mint(&f.user2, &init_sy);
     f.sy_client.deposit(&f.user2, &f.user2, &init_sy);
-    f.pool_client.mint_py(&f.user2, &f.user2, &500_000_000);
+    f.pool_client
+        .mint_py(&f.user2, &f.user2, &500_000_000, &f.maturity);
 
     // 2. SWAP PATH 1 (swap_exact_pt_for_sy):
     // In a valid positive yield pool, swapping PT for SY increases PT reserve and decreases SY reserve.
     // PT/SY increases further. Verify that it executes and keeps E > 1.0 WAD.
-    let (sy_received, _fee) = f
-        .pool_client
-        .swap_exact_pt_for_sy(&f.user2, &f.user2, &50_000, &1);
+    let (sy_received, _fee) =
+        f.pool_client
+            .swap_exact_pt_for_sy(&f.user2, &f.user2, &50_000, &1, &f.maturity);
     assert!(sy_received > 0);
     let (pt_res, sy_res) = f.pool_client.get_reserves();
     assert!(pt_res > sy_res);
@@ -364,9 +371,9 @@ fn test_empirical_negative_yield_rejection_all_paths_exhaustive() {
     // 3. SWAP PATH 2 (swap_exact_sy_for_pt):
     // Swapping 3,000,000 SY into the pool drives post-trade PT reserve below SY reserve.
     // Must be rejected with NegativeYieldNotSupported!
-    let err_swap2 = f
-        .pool_client
-        .try_swap_exact_sy_for_pt(&f.user2, &f.user2, &3_000_000, &1);
+    let err_swap2 =
+        f.pool_client
+            .try_swap_exact_sy_for_pt(&f.user2, &f.user2, &3_000_000, &1, &f.maturity);
     assert_eq!(
         err_swap2,
         Err(Ok(ContractError::NegativeYieldNotSupported)),
@@ -386,7 +393,7 @@ fn test_empirical_negative_yield_rejection_all_paths_exhaustive() {
         .deposit(&f_zero.user1, &f_zero.user1, &init_sy);
     f_zero
         .pool_client
-        .mint_py(&f_zero.user1, &f_zero.user1, &1_000_000_000);
+        .mint_py(&f_zero.user1, &f_zero.user1, &1_000_000_000, &f_zero.maturity);
     f_zero.pool_client.add_liquidity(
         &f_zero.user1,
         &f_zero.user1,
@@ -401,10 +408,13 @@ fn test_empirical_negative_yield_rejection_all_paths_exhaustive() {
         .deposit(&f_zero.user2, &f_zero.user2, &init_sy);
 
     // Buying YT in zero-yield pool must revert immediately with NegativeYieldNotSupported
-    let err_swap3 =
-        f_zero
-            .pool_client
-            .try_swap_exact_sy_for_yt(&f_zero.user2, &f_zero.user2, &50_000, &1);
+    let err_swap3 = f_zero.pool_client.try_swap_exact_sy_for_yt(
+        &f_zero.user2,
+        &f_zero.user2,
+        &50_000,
+        &1,
+        &f_zero.maturity,
+    );
     assert_eq!(
         err_swap3,
         Err(Ok(ContractError::NegativeYieldNotSupported)),
@@ -414,9 +424,9 @@ fn test_empirical_negative_yield_rejection_all_paths_exhaustive() {
     // 5. SWAP PATH 4 (swap_exact_yt_for_sy):
     // Selling 3,000,000 YT in f's pool burns PT and adds SY, driving PT < SY.
     // Must be rejected with NegativeYieldNotSupported!
-    let err_swap4 = f
-        .pool_client
-        .try_swap_exact_yt_for_sy(&f.user2, &f.user2, &3_000_000, &1);
+    let err_swap4 =
+        f.pool_client
+            .try_swap_exact_yt_for_sy(&f.user2, &f.user2, &3_000_000, &1, &f.maturity);
     assert_eq!(
         err_swap4,
         Err(Ok(ContractError::NegativeYieldNotSupported)),
@@ -505,7 +515,8 @@ fn test_empirical_proportion_bounds_and_precedence_exhaustive() {
 
     // 1. Initial add_liquidity < 4% PT:
     // User1 mints PT first so they have sufficient balance
-    f.pool_client.mint_py(&f.user1, &f.user1, &100_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &100_000_000, &f.maturity);
 
     // 3,000 PT and 97,000 SY -> proportion = 3% < 4%
     // Even though PT < SY, ProportionOutOfBounds MUST take precedence!
@@ -520,7 +531,8 @@ fn test_empirical_proportion_bounds_and_precedence_exhaustive() {
 
     // 2. Initial add_liquidity > 96% PT:
     // 97,000 PT and 3,000 SY -> proportion = 97% > 96%
-    f.pool_client.mint_py(&f.user1, &f.user1, &100_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &100_000_000, &f.maturity);
     let err_init_high =
         f.pool_client
             .try_add_liquidity(&f.user1, &f.user1, &97_000_000, &3_000_000, &0);
@@ -531,12 +543,14 @@ fn test_empirical_proportion_bounds_and_precedence_exhaustive() {
     );
 
     // Valid initial deposit (50% PT, 50% SY)
-    f.pool_client.mint_py(&f.user1, &f.user1, &1_000_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &1_000_000_000, &f.maturity);
     f.pool_client
         .add_liquidity(&f.user1, &f.user1, &1_000_000_000, &1_000_000_000, &1);
 
     // 3. Subsequent add_liquidity > 96% PT:
-    f.pool_client.mint_py(&f.user1, &f.user1, &50_000_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &50_000_000_000, &f.maturity);
     let err_sub_high =
         f.pool_client
             .try_add_liquidity(&f.user1, &f.user1, &50_000_000_000, &10, &0);
@@ -570,7 +584,7 @@ fn test_empirical_proportion_bounds_and_precedence_exhaustive() {
         .deposit(&f_near_max.user1, &f_near_max.user1, &seed_near_max);
     f_near_max
         .pool_client
-        .mint_py(&f_near_max.user1, &f_near_max.user1, &30_000_000_000);
+        .mint_py(&f_near_max.user1, &f_near_max.user1, &30_000_000_000, &f_near_max.maturity);
     f_near_max.pool_client.add_liquidity(
         &f_near_max.user1,
         &f_near_max.user1,
@@ -586,6 +600,7 @@ fn test_empirical_proportion_bounds_and_precedence_exhaustive() {
         &f_near_max.user1,
         &500_000_000,
         &1,
+        &f_near_max.maturity,
     );
     assert_eq!(
         err_swap_pt_high,
@@ -604,7 +619,8 @@ fn test_empirical_reentrancy_guards_all_11_operations_exhaustive() {
     let seed_sy = 5_000_000_000i128;
     f.usdc_admin_client.mint(&f.user1, &seed_sy);
     f.sy_client.deposit(&f.user1, &f.user1, &seed_sy);
-    f.pool_client.mint_py(&f.user1, &f.user1, &2_000_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &2_000_000_000, &f.maturity);
     f.pool_client
         .add_liquidity(&f.user1, &f.user1, &1_200_000_000, &1_000_000_000, &1);
 
@@ -616,7 +632,8 @@ fn test_empirical_reentrancy_guards_all_11_operations_exhaustive() {
 
     // 1. mint_py
     assert_eq!(
-        f.pool_client.try_mint_py(&f.user1, &f.user1, &1000),
+        f.pool_client
+            .try_mint_py(&f.user1, &f.user1, &1000, &f.maturity),
         Err(Ok(ContractError::ReentrancyLocked)),
         "mint_py must be protected by reentrancy lock"
     );
@@ -654,7 +671,7 @@ fn test_empirical_reentrancy_guards_all_11_operations_exhaustive() {
     // 6. swap_exact_pt_for_sy
     assert_eq!(
         f.pool_client
-            .try_swap_exact_pt_for_sy(&f.user1, &f.user1, &1000, &1),
+            .try_swap_exact_pt_for_sy(&f.user1, &f.user1, &1000, &1, &f.maturity),
         Err(Ok(ContractError::ReentrancyLocked)),
         "swap_exact_pt_for_sy must be protected by reentrancy lock"
     );
@@ -662,7 +679,7 @@ fn test_empirical_reentrancy_guards_all_11_operations_exhaustive() {
     // 7. swap_exact_sy_for_pt
     assert_eq!(
         f.pool_client
-            .try_swap_exact_sy_for_pt(&f.user1, &f.user1, &1000, &1),
+            .try_swap_exact_sy_for_pt(&f.user1, &f.user1, &1000, &1, &f.maturity),
         Err(Ok(ContractError::ReentrancyLocked)),
         "swap_exact_sy_for_pt must be protected by reentrancy lock"
     );
@@ -670,7 +687,7 @@ fn test_empirical_reentrancy_guards_all_11_operations_exhaustive() {
     // 8. swap_exact_sy_for_yt
     assert_eq!(
         f.pool_client
-            .try_swap_exact_sy_for_yt(&f.user1, &f.user1, &1000, &1),
+            .try_swap_exact_sy_for_yt(&f.user1, &f.user1, &1000, &1, &f.maturity),
         Err(Ok(ContractError::ReentrancyLocked)),
         "swap_exact_sy_for_yt must be protected by reentrancy lock"
     );
@@ -678,7 +695,7 @@ fn test_empirical_reentrancy_guards_all_11_operations_exhaustive() {
     // 9. swap_exact_yt_for_sy
     assert_eq!(
         f.pool_client
-            .try_swap_exact_yt_for_sy(&f.user1, &f.user1, &1000, &1),
+            .try_swap_exact_yt_for_sy(&f.user1, &f.user1, &1000, &1, &f.maturity),
         Err(Ok(ContractError::ReentrancyLocked)),
         "swap_exact_yt_for_sy must be protected by reentrancy lock"
     );
@@ -706,24 +723,26 @@ fn test_empirical_reentrancy_guards_all_11_operations_exhaustive() {
     });
 
     // Verify all 11 operations execute without ReentrancyLocked once freed
-    let (pt, yt) = f.pool_client.mint_py(&f.user1, &f.user1, &10_000);
+    let (pt, yt) = f
+        .pool_client
+        .mint_py(&f.user1, &f.user1, &10_000, &f.maturity);
     assert_eq!(pt, 10_000);
     assert_eq!(yt, 10_000);
 
-    let (sy_out, _) = f
-        .pool_client
-        .swap_exact_pt_for_sy(&f.user1, &f.user1, &5_000, &1);
+    let (sy_out, _) =
+        f.pool_client
+            .swap_exact_pt_for_sy(&f.user1, &f.user1, &5_000, &1, &f.maturity);
     assert!(sy_out > 0);
 
     // Verify error teardown across operations (errors do NOT leave lock behind)
-    let bad_call = f
-        .pool_client
-        .try_swap_exact_pt_for_sy(&f.user1, &f.user1, &0, &1);
+    let bad_call =
+        f.pool_client
+            .try_swap_exact_pt_for_sy(&f.user1, &f.user1, &0, &1, &f.maturity);
     assert!(bad_call.is_err());
     // Subsequent call succeeds immediately
-    let good_call = f
-        .pool_client
-        .swap_exact_pt_for_sy(&f.user1, &f.user1, &1_000, &1);
+    let good_call =
+        f.pool_client
+            .swap_exact_pt_for_sy(&f.user1, &f.user1, &1_000, &1, &f.maturity);
     assert!(good_call.0 > 0);
 }
 
@@ -737,7 +756,8 @@ fn test_empirical_storage_ttl_renewals_exhaustive() {
     let seed_sy = 5_000_000_000i128;
     f.usdc_admin_client.mint(&f.user1, &seed_sy);
     f.sy_client.deposit(&f.user1, &f.user1, &seed_sy);
-    f.pool_client.mint_py(&f.user1, &f.user1, &2_000_000_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &2_000_000_000, &f.maturity);
     f.pool_client
         .add_liquidity(&f.user1, &f.user1, &1_200_000_000, &1_000_000_000, &1);
 
@@ -745,23 +765,24 @@ fn test_empirical_storage_ttl_renewals_exhaustive() {
     f.env.ledger().set_sequence_number(50_000);
 
     // 1. mint_py triggers instance TTL bump
-    f.pool_client.mint_py(&f.user1, &f.user1, &10_000);
+    f.pool_client
+        .mint_py(&f.user1, &f.user1, &10_000, &f.maturity);
 
     // 2. swap_exact_pt_for_sy triggers instance TTL bump
     f.pool_client
-        .swap_exact_pt_for_sy(&f.user1, &f.user1, &5_000, &1);
+        .swap_exact_pt_for_sy(&f.user1, &f.user1, &5_000, &1, &f.maturity);
 
     // 3. swap_exact_sy_for_pt triggers instance TTL bump
     f.pool_client
-        .swap_exact_sy_for_pt(&f.user1, &f.user1, &2_000, &1);
+        .swap_exact_sy_for_pt(&f.user1, &f.user1, &2_000, &1, &f.maturity);
 
     // 4. swap_exact_sy_for_yt triggers instance TTL bump
     f.pool_client
-        .swap_exact_sy_for_yt(&f.user1, &f.user1, &1_000, &1);
+        .swap_exact_sy_for_yt(&f.user1, &f.user1, &1_000, &1, &f.maturity);
 
     // 5. swap_exact_yt_for_sy triggers instance TTL bump
     f.pool_client
-        .swap_exact_yt_for_sy(&f.user1, &f.user1, &500, &1);
+        .swap_exact_yt_for_sy(&f.user1, &f.user1, &500, &1, &f.maturity);
 
     // 6. add_liquidity triggers persistent balance and instance TTL bumps
     f.pool_client
